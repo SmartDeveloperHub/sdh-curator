@@ -1,0 +1,57 @@
+##-- DECLARATION -------------------------------------------------------------##
+
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+@prefix curator: <http://www.smartdeveloperhub.org/vocabulary/curator#> .
+@prefix amqp:    <http://www.smartdeveloperhub.org/vocabulary/amqp#> .
+@prefix types:   <http://www.smartdeveloperhub.org/vocabulary/types#> .
+
+@prefix ci:      <http://www.smartdeveloperhub.org/vocabulary/ci#> .
+@prefix scm:     <http://www.smartdeveloperhub.org/vocabulary/scm#> .
+
+@prefix doap:    <http://usefulinc.com/ns/doap#> .
+@prefix foaf:    <http://xmlns.com/foaf/0.1/> .
+
+##-- EXAMPLE ENRICHMENT REQUEST ----------------------------------------------##
+
+<#request> a curator:EnrichmentRequest ;
+  curator:messageId "00000000-0000-0000-0000-000000000001"^^types:UUID ;
+  curator:submittedBy <#connector> ;
+  curator:submittedOn "2015-09-29T09:30:10+01:00"^^xsd:dateTime ;
+  curator:replyTo <#deliveryChannel> ;
+  curator:targetResource <http://localhost:8080/harvester/service/builds/1/> .
+
+<#connector> a foaf:Agent ;
+  curator:agentId "00000000-0000-0000-0001-000000000001"^^types:UUID .
+
+<#deliveryChannel> a curator:DeliveryChannel ;
+  amqp:broker <#broker> ;
+  amqp:exchangeName "ci.responses"^^types:Name ;
+  amqp:queueName "builds"^^types:Name ;
+  amqp:routingKey "enrichment.responses"^^types:Name .
+
+<#broker> a amqp:Broker ;
+  amqp:host "127.0.0.1"^^types:Hostname ;
+  amqp:port "41980"^^types:Port ;
+  amqp:virtualHost "/sdh/curator/"^^types:Path .
+
+<http://localhost:8080/harvester/service/builds/1/>
+  ci:forBranch  _:branch ;
+  ci:forCommit  _:commit .
+
+_:repository a curator:Variable ;
+  rdf:type       scm:Repository ;
+  scm:hasBranch  _:branch ;
+  scm:location   "git://github.com/ldp4j/ldp4j.git"^^xsd:anyURI .
+
+_:branch a curator:Variable ;
+  rdf:type       scm:Branch ;
+  doap:name      "develop"^^xsd:string ;
+  scm:hasCommit  _:commit .
+
+_:commit a curator:Variable ;
+  rdf:type scm:Commit ;
+  scm:commitId  "f1efd1d8d8ceebef1d85eb66c69a44b0d713ed44"^^xsd:string .
