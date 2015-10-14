@@ -25,6 +25,9 @@
 import os
 import imp
 import inspect
+from rdflib import Graph
+import sys
+import itertools
 
 __author__ = 'Fernando Serena'
 
@@ -46,3 +49,35 @@ def search_module(file_path, predicate, limit=1):
         return cand_elms
 
     return None
+
+
+class CGraph(Graph):
+    def objects(self, subject=None, predicate=None, card=None):
+        objs_gen = super(CGraph, self).objects(subject, predicate)
+        if card is None:
+            return objs_gen
+
+        objs_gen, gen_bak = itertools.tee(objs_gen)
+        objs = list(objs_gen)
+
+        if card == 1:
+            if not (0 < len(objs) < 2):
+                raise ValueError(len(objs))
+            return objs.pop()
+
+        return gen_bak
+
+    def subjects(self, predicate=None, object=None, card=None):
+        subs_gen = super(CGraph, self).subjects(predicate, object)
+        if card is None:
+            return subs_gen
+
+        subs_gen, gen_bak = itertools.tee(subs_gen)
+        subs = list(subs_gen)
+
+        if card == 1:
+            if not (0 < len(subs) < 2):
+                raise ValueError(len(subs))
+            return subs.pop()
+
+        return gen_bak
