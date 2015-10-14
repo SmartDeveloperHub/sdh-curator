@@ -1,0 +1,11 @@
+nose
+redis
+hiredis
+Flask==0.10.1
+Flask-Negotiate==0.1.0
+rdflib==4.2.0
+APScheduler
+networkx
+futures
+rfc3987
+pika
