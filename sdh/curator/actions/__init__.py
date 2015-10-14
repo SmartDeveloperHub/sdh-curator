@@ -24,8 +24,7 @@
 import StringIO
 
 import pkgutil
-from sdh.curator.actions.utils import search_module
-from rdflib import Graph
+from sdh.curator.actions.utils import search_module, CGraph
 import logging
 
 __author__ = 'Fernando Serena'
@@ -35,7 +34,9 @@ log = logging.getLogger('sdh.curator.actions')
 
 class Action(object):
     def __init__(self, message):
-        self._request_graph = Graph()
+        self._request_graph = CGraph()
+        self._request_graph.bind('curator', 'http://www.smartdeveloperhub.org/vocabulary/curator#')
+        self._request_graph.bind('amqp', 'http://www.smartdeveloperhub.org/vocabulary/amqp#')
         self._request_graph.parse(StringIO.StringIO(message), format='turtle')
         log.debug('Received message:\n{}'.format(self._request_graph.serialize(format='turtle')))
 
