@@ -21,10 +21,10 @@
   limitations under the License.
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
-from abc import abstractmethod
+from abc import abstractmethod, abstractproperty, ABCMeta
 
 from sdh.curator.actions import Action
-from sdh.curator.actions.core.delivery import DeliveryRequest
+from sdh.curator.actions.core.delivery import DeliveryRequest, DeliveryAction
 from sdh.curator.actions.core.utils import CGraph
 from rdflib.namespace import Namespace, RDF
 from sdh.curator.actions.core.store import r
@@ -42,9 +42,28 @@ class FragmentRequest(DeliveryRequest):
     def __init__(self):
         super(FragmentRequest, self).__init__()
         self.__pattern_graph = CGraph()
+        self.__pattern_graph.bind('curator', CURATOR)
+        self._target_resource = None
 
     def _extract_content(self):
         super(FragmentRequest, self)._extract_content()
+
+        q_res = self._graph.query("""SELECT ?node ?t WHERE {
+                                        ?node a curator:EnrichmentRequest;
+                                                curator:targetResource ?t
+                                    }""")
+
+        q_res = list(q_res)
+        if len(q_res) != 1:
+            raise SyntaxError('Invalid fragment request')
+
+        request_fields = q_res.pop()
+        if not all(request_fields):
+            raise ValueError('Missing fields for fragment request')
+        if request_fields[0] != self._request_node:
+            raise SyntaxError('Request node does not match')
+
+        (self._target_resource,) = request_fields[1:]
 
         variables = set(self._graph.subjects(RDF.type, CURATOR.Variable))
         log.debug('{} variables involved in the the enrichment pattern to <{}>'.format(len(variables), self._target_resource))
@@ -52,22 +71,19 @@ class FragmentRequest(DeliveryRequest):
         visited = set([])
         target_pattern = self._graph.predicate_objects(self._target_resource)
         for (pr, req_object) in target_pattern:
-            if (req_object, RDF.type, CURATOR.Variable) in self._graph:
-                visited.add(req_object)
-                link_triple = (self._target_resource, pr, req_object)
-                self.__pattern_graph.add(link_triple)
-                log.debug('New pattern link: {}'.format(link_triple))
-
+            if self.__add_pattern_link(req_object, (self._target_resource, pr, req_object)):
                 self.__follow_variable(req_object, visited=visited)
 
         log.debug('Extracted pattern graph:\n{}'.format(self.__pattern_graph.serialize(format='turtle')))
 
     def __add_pattern_link(self, node, triple):
-        is_variable = (node, RDF.type, CURATOR.Variable) in self._graph
-        if is_variable:
+        variable_triple = (node, RDF.type, CURATOR.Variable)
+        condition = variable_triple in self._graph and triple not in self.__pattern_graph
+        if condition:
             self.__pattern_graph.add(triple)
+            self.__pattern_graph.add(variable_triple)
             log.debug('New pattern link: {}'.format(triple))
-        return is_variable
+        return condition
 
     def __follow_variable(self, variable_node, visited=None):
         if visited is None:
@@ -75,7 +91,7 @@ class FragmentRequest(DeliveryRequest):
         visited.add(variable_node)
         subject_pattern = self._graph.subject_predicates(variable_node)
         for (n, pr) in subject_pattern:
-            if n not in visited and self.__add_pattern_link(n, (n, pr, variable_node)):
+            if self.__add_pattern_link(n, (n, pr, variable_node)) and n not in visited:
                 self.__follow_variable(n, visited)
 
         object_pattern = self._graph.predicate_objects(variable_node)
@@ -91,8 +107,10 @@ class FragmentRequest(DeliveryRequest):
         return self.__pattern_graph
 
 
-class FragmentAction(Action):
-    @abstractmethod
+class FragmentAction(DeliveryAction):
+    __metaclass__ = ABCMeta
+
+    @abstractproperty
     def request(self):
         pass
 
@@ -101,7 +119,5 @@ class FragmentAction(Action):
 
     def perform(self):
         super(FragmentAction, self).perform()
-        log.debug('Storing request...')
-        r.set('p', self.request().pattern.serialize(format='turtle'))
+        r.set('p', self.request.pattern.serialize(format='turtle'))
 
-Action.register(FragmentAction)

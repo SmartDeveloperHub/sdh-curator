@@ -21,8 +21,9 @@
   limitations under the License.
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
+from abc import ABCMeta, abstractproperty
 
-from sdh.curator.actions import Request
+from sdh.curator.actions import Request, Action
 import logging
 
 __author__ = 'Fernando Serena'
@@ -33,20 +34,14 @@ log = logging.getLogger('sdh.curator.actions.delivery')
 class DeliveryRequest(Request):
     def __init__(self):
         super(DeliveryRequest, self).__init__()
-        self._target_resource = self._message_id = self._submitted_on = self._submitted_by = None
         self._exchange_name = self._queue_name = self._routing_key = None
         self._host = self._port = self._virtual_host = None
 
     def _extract_content(self):
-        q_res = self._graph.query("""SELECT ?t ?m ?d ?a ?ex ?q ?rk ?h ?p ?v WHERE {
-                                  [] a curator:EnrichmentRequest;
-                                     curator:targetResource ?t;
-                                     curator:messageId ?m;
-                                     curator:submittedOn ?d;
-                                     curator:submittedBy [
-                                        curator:agentId ?a
-                                     ];
-                                     curator:replyTo [
+        super(DeliveryRequest, self)._extract_content()
+
+        q_res = self._graph.query("""SELECT ?node ?ex ?q ?rk ?h ?p ?v WHERE {
+                                  ?node curator:replyTo [
                                         a curator:DeliveryChannel;
                                         amqp:exchangeName ?ex;
                                         amqp:queueName ?q;
@@ -61,19 +56,33 @@ class DeliveryRequest(Request):
                                   } """)
         q_res = list(q_res)
         if len(q_res) != 1:
-            raise SyntaxError('Invalid enrichment request')
+            raise SyntaxError('Invalid delivery request')
 
         request_fields = q_res.pop()
 
         if not all(request_fields):
-            raise ValueError('Missing enrichment request fields')
+            raise ValueError('Missing fields for delivery request')
 
-        (self._target_resource,
-         self._message_id,
-         self._submitted_on,
-         self._submitted_by,
-         self._exchange_name,
+        if request_fields[0] != self._request_node:
+            raise SyntaxError('Request node does not match')
+
+        (self._exchange_name,
          self._queue_name,
          self._routing_key,
          self._host, self._port,
-         self._virtual_host) = request_fields
+         self._virtual_host) = request_fields[1:]
+
+
+class DeliveryAction(Action):
+    __metaclass__ = ABCMeta
+
+    @abstractproperty
+    def request(self):
+        pass
+
+    def __init__(self, message):
+        super(DeliveryAction, self).__init__(message)
+
+    def perform(self):
+        super(DeliveryAction, self).perform()
+

@@ -22,28 +22,12 @@
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
 
-import logging
-from sdh.curator.actions.core.fragment import FragmentRequest, FragmentAction
+from sdh.curator.actions import Action
 
 __author__ = 'Fernando Serena'
 
-log = logging.getLogger('sdh.curator.actions.enrichment')
 
-
-class EnrichmentRequest(FragmentRequest):
-    def __init__(self):
-        super(EnrichmentRequest, self).__init__()
-
-    def _extract_content(self):
-        super(EnrichmentRequest, self)._extract_content()
-
-
-class EnrichmentAction(FragmentAction):
+class DisconnectAction(Action):
+    @property
     def request(self):
-        if self._request is None:
-            self._request = EnrichmentRequest()
-        return self._request
-
-    def perform(self):
-        log.debug('Received a potential enrichment request')
-        super(EnrichmentAction, self).perform()
+        return None
