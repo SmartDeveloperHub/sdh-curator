@@ -34,7 +34,7 @@ class Config(object):
     PORT = 5002
     RABBIT = {
         'host': 'localhost',
-        'port': '5672'
+        'port': 5672
     }
 
 
@@ -43,10 +43,10 @@ class DevelopmentConfig(Config):
     LOG = logging.DEBUG
     REDIS = {
         'host': 'localhost',
-        'db': 1,
+        'db': 4,
         'port': 6379
     }
-    STORE = 'persist'
+    STORE = 'memory'
 
 
 class TestingConfig(Config):
@@ -54,7 +54,7 @@ class TestingConfig(Config):
     LOG = logging.DEBUG
     REDIS = {
         'host': 'localhost',
-        'db': 2,
+        'db': 5,
         'port': 6379
     }
     TESTING = True
@@ -66,7 +66,7 @@ class ProductionConfig(Config):
     LOG = logging.INFO
     REDIS = {
         'host': 'redis',
-        'db': 1,
+        'db': 4,
         'port': 6379
     }
     STORE = 'persist'

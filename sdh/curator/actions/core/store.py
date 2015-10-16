@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
   This file is part of the Smart Developer Hub Project:
@@ -11,7 +10,7 @@
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
-  You may obtain a copy of the License at
+  You may obtain a copy of the License at 
 
             http://www.apache.org/licenses/LICENSE-2.0
 
@@ -23,33 +22,32 @@
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
 
+import redis
+from redis.exceptions import BusyLoadingError, RedisError
+from sdh.curator.server import app
+import logging
+import sys
+
 __author__ = 'Fernando Serena'
 
-import logging
-from sdh.curator.server import app
-import os
+log = logging.getLogger('sdh.curator.actions.store')
+REDIS_CONFIG = app.config['REDIS']
+pool = redis.ConnectionPool(host=REDIS_CONFIG.get('host'), port=REDIS_CONFIG.get('port'), db=REDIS_CONFIG.get('db'))
+r = redis.StrictRedis(connection_pool=pool)
 
-log_level = os.environ.get('LOG_LEVEL')
-if log_level is None:
-    log_level = app.config['LOG']
 
-logger = logging.getLogger('apscheduler')
-ch = logging.StreamHandler()
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-ch.setLevel(log_level)
-ch.setFormatter(formatter)
-logger.addHandler(ch)
-logger.setLevel(log_level)
-logger = logging.getLogger('sdh.curator')
-logger.addHandler(ch)
-logger.setLevel(log_level)
+# Ping redis to check if it's ready
+requests = 0
+while True:
+    try:
+        r.keys('*')
+        break
+    except BusyLoadingError as re:
+        log.warning(re.message)
+    except RedisError:
+        print 'Redis is not available'
+        sys.exit(-1)
 
-from sdh.curator import api
-import sdh.curator.messaging
-
-app.logger.info('Ready')
-
-# raw_input('Hit ENTER to exit...')
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=app.config['PORT'], debug=True, use_reloader=False)
+store_mode = app.config['STORE']
+if 'memory' in store_mode:
+    r.flushdb()

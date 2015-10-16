@@ -43,7 +43,8 @@ def search_module(file_path, predicate, limit=1):
         py_mod = imp.load_compiled(mod_name, file_path)
 
     if py_mod is not None:
-        cand_elms = filter(predicate, inspect.getmembers(py_mod, inspect.isclass))
+        cand_elms = filter(predicate,
+                           inspect.getmembers(py_mod, lambda x: inspect.isclass(x) and not inspect.isabstract(x)))
         if len(cand_elms) > limit:
             raise ValueError('Too many elements in module {}'.format(mod_name))
         return cand_elms

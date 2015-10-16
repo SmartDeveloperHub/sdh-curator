@@ -26,11 +26,12 @@ import pika
 from threading import Thread
 import logging
 from sdh.curator.actions import execute
-import time
+from sdh.curator.server import app
 
 __author__ = 'Fernando Serena'
 
 log = logging.getLogger('sdh.curator.messaging')
+RABBIT_CONFIG = app.config['RABBIT']
 
 
 def callback(ch, method, properties, body):
@@ -47,7 +48,7 @@ def callback(ch, method, properties, body):
 
 def __setup_request_queue():
     connection = pika.BlockingConnection(pika.ConnectionParameters(
-        host='localhost'))
+        host=RABBIT_CONFIG['host']))
     channel = connection.channel()
     log.debug('Connected to AMQP server')
 

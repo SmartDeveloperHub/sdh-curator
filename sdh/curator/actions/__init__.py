@@ -22,9 +22,10 @@
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
 import StringIO
-
+from abc import ABCMeta, abstractproperty, abstractmethod
 import pkgutil
-from sdh.curator.actions.utils import search_module, CGraph
+from sdh.curator.actions.core.utils import search_module, CGraph
+from sdh.curator.actions.core.store import r
 import logging
 
 __author__ = 'Fernando Serena'
@@ -33,15 +34,35 @@ log = logging.getLogger('sdh.curator.actions')
 
 
 class Action(object):
-    def __init__(self, message):
-        self._request_graph = CGraph()
-        self._request_graph.bind('curator', 'http://www.smartdeveloperhub.org/vocabulary/curator#')
-        self._request_graph.bind('amqp', 'http://www.smartdeveloperhub.org/vocabulary/amqp#')
-        self._request_graph.parse(StringIO.StringIO(message), format='turtle')
-        log.debug('Received message:\n{}'.format(self._request_graph.serialize(format='turtle')))
+    __metaclass__ = ABCMeta
 
-    def run(self):
-        print self._request_graph.serialize(format='turtle')
+    def __init__(self, message):
+        self.__message = message
+        self._request = None
+
+    @abstractproperty
+    def request(self):
+        pass
+
+    def perform(self):
+        self.request().parse(self.__message)
+
+
+class Request(object):
+    __metaclass__ = ABCMeta
+
+    def __init__(self):
+        self._graph = CGraph()
+        self._graph.bind('curator', 'http://www.smartdeveloperhub.org/vocabulary/curator#')
+        self._graph.bind('amqp', 'http://www.smartdeveloperhub.org/vocabulary/amqp#')
+
+    def parse(self, message):
+        self._graph.parse(StringIO.StringIO(message), format='turtle')
+        self._extract_content()
+
+    @abstractmethod
+    def _extract_content(self):
+        pass
 
 
 def execute(*args, **kwargs):
@@ -56,6 +77,6 @@ def execute(*args, **kwargs):
     try:
         _, clz = search_module(loader.get_filename(),
                                lambda (_, cl): issubclass(cl, Action) and cl != Action).pop()
-        clz(kwargs.get('data', None)).run()
+        clz(kwargs.get('data', None)).perform()
     except IndexError:
         raise EnvironmentError('Action module found but class is missing: "{}"'.format(name))
