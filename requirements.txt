@@ -9,3 +9,4 @@ networkx
 futures
 rfc3987
 pika
+Agora-Client

@@ -71,6 +71,14 @@ class DeliveryRequest(Request):
          self._routing_key,
          self._host, self._port,
          self._virtual_host) = request_fields[1:]
+        log.debug("""Parsed attributes of a delivery action request:
+                      -exchange name: {}
+                      -queue name:{}
+                      -routing key:{}
+                      -host: {}
+                      -port: {}
+                      -virtual host: {}""".format(
+            self._exchange_name, self._queue_name, self._routing_key, self._host, self._port, self._virtual_host))
 
 
 class DeliveryAction(Action):

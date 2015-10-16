@@ -38,7 +38,7 @@ setup(
     download_url="https://github.com/smartdeveloperhub/sdh-curator/tarball/0.1.0-alpha1",
     packages=find_packages(exclude=['ez_setup', 'examples', 'tests']),
     namespace_packages=['sdh', 'sdh.curator'],
-    install_requires=['pika', 'flask', 'Flask-Negotiate', 'redis', 'hiredis', 'APScheduler', 'rdflib', 'networkx', 'futures'],
+    install_requires=['pika', 'flask', 'Flask-Negotiate', 'redis', 'hiredis', 'APScheduler', 'rdflib', 'networkx', 'futures', 'Agora-Client'],
     classifiers=[],
     scripts=['curator'],
     package_dir={'sdh.curator': 'sdh/curator', 'sdh.curator.server': 'sdh/curator/server'},

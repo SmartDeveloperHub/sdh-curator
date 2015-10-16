@@ -31,7 +31,7 @@ from sdh.curator.actions.core.store import r
 
 __author__ = 'Fernando Serena'
 
-log = logging.getLogger('sdh.curator.actions')
+log = logging.getLogger('sdh.curator.actions.generic')
 
 
 class Action(object):
@@ -57,6 +57,7 @@ class Request(object):
         self._request_node = self._message_id = self._submitted_on = self._submitted_by = None
 
     def parse(self, message):
+        log.debug('Parsing message...')
         self._graph.parse(StringIO.StringIO(message), format='turtle')
         self._extract_content()
 
@@ -81,9 +82,20 @@ class Request(object):
         (self._request_node, self._message_id,
          self._submitted_on,
          self._submitted_by) = request_fields
+        log.debug(
+            """Parsed attributes of generic action request:
+                -message id: {}
+                -submitted on:{}
+                -submitted by:{}""".format(
+                self._message_id, self._submitted_on, self._submitted_by))
+
+    @property
+    def message_id(self):
+        return self._message_id
 
 
 def execute(*args, **kwargs):
+    log.debug('Searching for a compliant "{}" action handler...'.format(args[0]))
     cand_modules = filter(lambda x: not x[2] and x[1] == args[0],
                           pkgutil.iter_modules(path=['sdh/curator/actions/ext']))
     if len(cand_modules) > 1:
@@ -96,6 +108,9 @@ def execute(*args, **kwargs):
     try:
         _, clz = search_module(loader.get_filename(),
                                lambda (_, cl): issubclass(cl, Action) and cl != Action).pop()
-        clz(kwargs.get('data', None)).perform()
+        data = kwargs.get('data', None)
+        log.debug(
+            'Found! Requesting an instance of {} to perform a/n {} action described as:\n{}'.format(clz, name, data))
+        clz(data).perform()
     except IndexError:
         raise EnvironmentError('Action module found but class is missing: "{}"'.format(name))

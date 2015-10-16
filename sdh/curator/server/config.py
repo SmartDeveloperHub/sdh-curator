@@ -47,6 +47,7 @@ class DevelopmentConfig(Config):
         'port': 6379
     }
     STORE = 'memory'
+    AGORA = 'http://localhost:9001'
 
 
 class TestingConfig(Config):

@@ -36,7 +36,7 @@ RABBIT_CONFIG = app.config['RABBIT']
 
 def callback(ch, method, properties, body):
     action_args = method.routing_key.split('.')[1:]
-    log.debug('Trying to execute an incoming action request for "{}"'.format(action_args[0]))
+    log.debug('Incoming request for "{}"!'.format(action_args[0]))
     try:
         execute(*action_args, data=body)
     except (EnvironmentError, AttributeError) as e:
