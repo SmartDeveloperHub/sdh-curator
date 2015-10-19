@@ -21,77 +21,36 @@
   limitations under the License.
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
-import StringIO
 import pkgutil
 import logging
-
-from abc import abstractproperty, abstractmethod, ABCMeta
-from sdh.curator.actions.core.utils import search_module, CGraph
-from sdh.curator.actions.core.store import r
+import os
+import imp
+import inspect
+from sdh.curator.actions.core.base import Action
 
 __author__ = 'Fernando Serena'
 
-log = logging.getLogger('sdh.curator.actions.generic')
+log = logging.getLogger('sdh.curator.actions')
 
 
-class Action(object):
-    __metaclass__ = ABCMeta
+def search_module(file_path, predicate, limit=1):
+    mod_name, file_ext = os.path.splitext(os.path.split(file_path)[-1])
+    py_mod = None
 
-    def __init__(self, message):
-        self.__message = message
-        self._request = None
+    if file_ext.lower() == '.py':
+        py_mod = imp.load_source(mod_name, file_path)
 
-    @abstractproperty
-    def request(self):
-        pass
+    elif file_ext.lower() == '.pyc':
+        py_mod = imp.load_compiled(mod_name, file_path)
 
-    def perform(self):
-        self.request.parse(self.__message)
+    if py_mod is not None:
+        cand_elms = filter(predicate,
+                           inspect.getmembers(py_mod, lambda x: inspect.isclass(x) and not inspect.isabstract(x)))
+        if len(cand_elms) > limit:
+            raise ValueError('Too many elements in module {}'.format(mod_name))
+        return cand_elms
 
-
-class Request(object):
-    def __init__(self):
-        self._graph = CGraph()
-        self._graph.bind('curator', 'http://www.smartdeveloperhub.org/vocabulary/curator#')
-        self._graph.bind('amqp', 'http://www.smartdeveloperhub.org/vocabulary/amqp#')
-        self._request_node = self._message_id = self._submitted_on = self._submitted_by = None
-
-    def parse(self, message):
-        log.debug('Parsing message...')
-        self._graph.parse(StringIO.StringIO(message), format='turtle')
-        self._extract_content()
-
-    @abstractmethod
-    def _extract_content(self):
-        q_res = self._graph.query("""SELECT ?node ?m ?d ?a WHERE {
-                                        ?node curator:messageId ?m;
-                                              curator:submittedOn ?d;
-                                              curator:submittedBy [
-                                                 curator:agentId ?a
-                                              ]
-                                     }""")
-        q_res = list(q_res)
-        if len(q_res) != 1:
-            raise SyntaxError('Invalid request')
-
-        request_fields = q_res.pop()
-
-        if not all(request_fields):
-            raise ValueError('Missing fields for generic request')
-
-        (self._request_node, self._message_id,
-         self._submitted_on,
-         self._submitted_by) = request_fields
-        log.debug(
-            """Parsed attributes of generic action request:
-                -message id: {}
-                -submitted on:{}
-                -submitted by:{}""".format(
-                self._message_id, self._submitted_on, self._submitted_by))
-
-    @property
-    def message_id(self):
-        return self._message_id
+    return None
 
 
 def execute(*args, **kwargs):
@@ -111,6 +70,6 @@ def execute(*args, **kwargs):
         data = kwargs.get('data', None)
         log.debug(
             'Found! Requesting an instance of {} to perform a/n {} action described as:\n{}'.format(clz, name, data))
-        clz(data).perform()
+        clz(data).submit()
     except IndexError:
         raise EnvironmentError('Action module found but class is missing: "{}"'.format(name))

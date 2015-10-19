@@ -39,7 +39,7 @@ def callback(ch, method, properties, body):
     log.debug('Incoming request for "{}"!'.format(action_args[0]))
     try:
         execute(*action_args, data=body)
-    except (EnvironmentError, AttributeError) as e:
+    except (EnvironmentError, AttributeError, ValueError) as e:
         log.error(e.message)
         ch.basic_reject(delivery_tag=method.delivery_tag, requeue=False)
     else:

@@ -23,8 +23,7 @@
 """
 
 import logging
-
-from sdh.curator.actions.core.fragment import FragmentRequest, FragmentAction
+from sdh.curator.actions.core.fragment import FragmentRequest, FragmentAction, RDF, CURATOR
 
 __author__ = 'Fernando Serena'
 
@@ -42,7 +41,7 @@ class EnrichmentRequest(FragmentRequest):
 
         q_res = self._graph.query("""SELECT ?node ?t WHERE {
                                         ?node a curator:EnrichmentRequest;
-                                                curator:targetResource ?t
+                                              curator:targetResource ?t
                                     }""")
 
         q_res = list(q_res)
@@ -58,18 +57,17 @@ class EnrichmentRequest(FragmentRequest):
         (self._target_resource,) = request_fields[1:]
 
         log.debug("""Parsed attributes of an enrichment action request:
-                      -target resource: {}""".format(self._target_resource))
+                    -target resource: {}""".format(self._target_resource))
 
         target_pattern = self._graph.predicate_objects(self._target_resource)
         for (pr, req_object) in target_pattern:
-            self._target_links.add((pr, req_object))
-            self.pattern.add((self._target_resource, pr, req_object))
+            if (req_object, RDF.type, CURATOR.Variable) in self._graph:
+                self._target_links.add((pr, req_object))
         enrich_properties = set([pr for (pr, _) in self._target_links])
         log.debug(
             '<{}> is requested to be enriched with values for the following properties:\n{}'.format(
                 self._target_resource,
                 '\n'.join(enrich_properties)))
-        log.debug('Extracted (enrichment) pattern graph:\n{}'.format(self.pattern.serialize(format='turtle')))
 
     @property
     def target_resource(self):
@@ -81,8 +79,9 @@ class EnrichmentRequest(FragmentRequest):
 
 
 class EnrichmentAction(FragmentAction):
+
     def build_graph_pattern(self, v_labels=None):
-        super(EnrichmentAction, self).build_graph_pattern(v_labels={self.request.target_resource: '?t'})
+        super(EnrichmentAction, self).build_graph_pattern()
 
     @property
     def request(self):
@@ -90,5 +89,13 @@ class EnrichmentAction(FragmentAction):
             self._request = EnrichmentRequest()
         return self._request
 
-    def perform(self):
-        super(EnrichmentAction, self).perform()
+    def submit(self):
+        super(EnrichmentAction, self).submit()
+
+    def _persist(self):
+        super(EnrichmentAction, self)._persist()
+        self._pipe.sadd('enrichments', self._request_id)
+        self._pipe.set('{}:enrich'.format(self._request_key), self._request.target_resource)
+        variable_links = [(str(pr), self._variables_dict[v]) for (pr, v) in self._request.target_links]
+        self._pipe.sadd('{}:enrich:links'.format(self._request_key), *variable_links)
+

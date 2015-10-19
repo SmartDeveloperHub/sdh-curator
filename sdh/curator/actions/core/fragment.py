@@ -24,12 +24,11 @@
 import logging
 
 from abc import abstractproperty, ABCMeta, abstractmethod
-from agora.client.agora import Agora
 from rdflib import Literal
 from sdh.curator.actions.core.delivery import DeliveryRequest, DeliveryAction
 from sdh.curator.actions.core.utils import CGraph
 from rdflib.namespace import Namespace, RDF
-from sdh.curator.actions.core.store import r
+from sdh.curator.collect import agora_client
 
 __author__ = 'Fernando Serena'
 
@@ -44,8 +43,7 @@ class FragmentRequest(DeliveryRequest):
         super(FragmentRequest, self).__init__()
         self.__pattern_graph = CGraph()
         self.__pattern_graph.bind('curator', CURATOR)
-        self.__agora = Agora('http://localhost:9001')
-        prefixes = self.__agora.prefixes
+        prefixes = agora_client.prefixes
         for p in prefixes:
             self.__pattern_graph.bind(p, prefixes[p])
 
@@ -94,13 +92,14 @@ class FragmentRequest(DeliveryRequest):
     def pattern(self):
         return self.__pattern_graph
 
-    @property
-    def agora(self):
-        return self.__agora
-
 
 class FragmentAction(DeliveryAction):
     __metaclass__ = ABCMeta
+
+    def __init__(self, message):
+        super(FragmentAction, self).__init__(message)
+        self._graph_pattern = set([])
+        self._variables_dict = {}
 
     @abstractproperty
     def request(self):
@@ -112,44 +111,34 @@ class FragmentAction(DeliveryAction):
     @abstractmethod
     def build_graph_pattern(self, v_labels=None):
         variables = set(self.request.pattern.subjects(RDF.type, CURATOR.Variable))
-        if v_labels is None:
-            v_labels = {}
+        if v_labels is not None:
+            self._variables_dict = v_labels.copy()
         for i, v in enumerate(variables):
-            v_labels[v] = '?v{}'.format(i)
-        for v in v_labels.keys():
+            self._variables_dict[v] = '?v{}'.format(i)
+        for v in self._variables_dict.keys():
             v_in = self.request.pattern.subject_predicates(v)
             for (s, pr) in v_in:
-                s_part = v_labels[s] if s in v_labels else self._n3(s)
-                self._graph_pattern.add(u'{} {} {}'.format(s_part, self._n3(pr), v_labels[v]))
+                s_part = self._variables_dict[s] if s in self._variables_dict else self._n3(s)
+                self._graph_pattern.add(u'{} {} {}'.format(s_part, self._n3(pr), self._variables_dict[v]))
             v_out = self.request.pattern.predicate_objects(v)
             for (pr, o) in [_ for _ in v_out if _[1] != CURATOR.Variable]:
-                o_part = v_labels[o] if o in v_labels else ('"{}"'.format(o) if isinstance(o, Literal) else self._n3(o))
+                o_part = self._variables_dict[o] if o in self._variables_dict else ('"{}"'.format(o) if isinstance(o, Literal) else self._n3(o))
                 p_part = self._n3(pr) if pr != RDF.type else 'a'
-                self._graph_pattern.add(u'{} {} {}'.format(v_labels[v], p_part, o_part))
+                self._graph_pattern.add(u'{} {} {}'.format(self._variables_dict[v], p_part, o_part))
 
-    def __init__(self, message):
-        super(FragmentAction, self).__init__(message)
-        self._graph_pattern = set([])
-        self._graph_pattern_str = '{}'
-
-    def perform(self):
-        super(FragmentAction, self).perform()
-        self.build_graph_pattern()
-
-        fgm_key = 'fragment:{}'.format(self.request.message_id)
-        self._graph_pattern_str = '{ %s }' % ' . '.join(self._graph_pattern)
-        for tp in self._graph_pattern:
-            r.sadd(fgm_key, tp)
+    def submit(self):
+        super(FragmentAction, self).submit()
+        graph_pattern_str = '{ %s }' % ' . '.join(self._graph_pattern)
         log.debug(
             '{} triple patterns identified:\n{}'.format(len(self._graph_pattern),
-                                                        self._graph_pattern_str.replace(' . ', ' .\n')))
+                                                        graph_pattern_str.replace(' . ', ' .\n')))
 
-        log.debug('[TEST] Synchronously retrieving the corresponding fragment...')
-        fgm_gen, _, graph = self.request.agora.get_fragment_generator('{}'.format(self._graph_pattern_str))
-        for _, s, p, o in fgm_gen:
-            print u'{} {} {} .'.format(s.n3(graph.namespace_manager),
-                                     p.n3(graph.namespace_manager),
-                                     o.n3(graph.namespace_manager))
+    @abstractmethod
+    def _persist(self):
+        super(FragmentAction, self)._persist()
+        self.build_graph_pattern()
+        self._pipe.sadd('fragments', self._request_id)
+        self._pipe.sadd('{}:gp'.format(self._request_key), *self._graph_pattern)
 
     @property
     def graph_pattern(self):

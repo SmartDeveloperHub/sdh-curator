@@ -22,34 +22,10 @@
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
 
-import os
-import imp
-import inspect
 from rdflib import Graph
-import sys
 import itertools
 
 __author__ = 'Fernando Serena'
-
-
-def search_module(file_path, predicate, limit=1):
-    mod_name, file_ext = os.path.splitext(os.path.split(file_path)[-1])
-    py_mod = None
-
-    if file_ext.lower() == '.py':
-        py_mod = imp.load_source(mod_name, file_path)
-
-    elif file_ext.lower() == '.pyc':
-        py_mod = imp.load_compiled(mod_name, file_path)
-
-    if py_mod is not None:
-        cand_elms = filter(predicate,
-                           inspect.getmembers(py_mod, lambda x: inspect.isclass(x) and not inspect.isabstract(x)))
-        if len(cand_elms) > limit:
-            raise ValueError('Too many elements in module {}'.format(mod_name))
-        return cand_elms
-
-    return None
 
 
 class CGraph(Graph):

@@ -37,7 +37,7 @@ routing_key = 'request.enrichment'
 
 graph = Graph()
 script_dir = os.path.dirname(__file__)
-with open(os.path.join(script_dir, 'request_ok.ttl')) as f:
+with open(os.path.join(script_dir, 'request_example.ttl')) as f:
     graph.parse(file=f, format='turtle')
 
 message = graph.serialize(format='turtle')

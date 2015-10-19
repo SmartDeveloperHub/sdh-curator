@@ -22,7 +22,7 @@
   curator:submittedBy <#connector> ;
   curator:submittedOn "2015-09-29T09:30:10+01:00"^^xsd:dateTime ;
   curator:replyTo <#deliveryChannel> ;
-  curator:targetResource <http://localhost:8080/harvester/service/builds/1/> .
+  curator:targetResource <http://localhost:9001/scm/repositories/1> .
 
 <#connector> a foaf:Agent ;
   curator:agentId "00000000-0000-0000-0001-000000000001"^^types:UUID .
@@ -39,8 +39,9 @@
   amqp:virtualHost "/sdh/curator/"^^types:Path .
 
 <http://localhost:9001/scm/repositories/1>
+  a curator:Variable ;
+  doap:name "jenkins" ;
   scm:hasBranch  [
     a curator:Variable ;
-    rdf:type       scm:Branch ;
-    doap:name      "develop"^^xsd:string
+    doap:name      "master"^^xsd:string
   ].

@@ -46,6 +46,7 @@ logger.setLevel(log_level)
 
 from sdh.curator import api
 import sdh.curator.messaging
+import sdh.curator.collect
 
 app.logger.info('Ready')
 
