@@ -23,12 +23,34 @@
 """
 import logging
 
-from abc import ABCMeta, abstractproperty, abstractmethod
-from sdh.curator.actions.core.base import Request, Action
+from abc import ABCMeta, abstractmethod
+from sdh.curator.actions.core.base import Request, Action, Response, Sink
+from sdh.curator.actions.core.utils import CGraph
+from rdflib import BNode, Literal
+from sdh.curator.actions.core import RDF, CURATOR, FOAF, TYPES
+from sdh.curator.messaging.reply import reply
+from sdh.curator.store import r
+from datetime import datetime
+import base64
 
 __author__ = 'Fernando Serena'
 
 log = logging.getLogger('sdh.curator.actions.delivery')
+
+CURATOR_UUID = Literal('00000000-0000-0000-0001-000000000002', datatype=TYPES.UUID)
+
+_accepted_template = CGraph()
+_accept_node = BNode('#accepted')
+_curator_node = BNode('#curator')
+_accepted_template.add((_accept_node, RDF.type, CURATOR.Accepted))
+_accepted_template.add((_curator_node, RDF.type, FOAF.Agent))
+_accepted_template.add((_accept_node, CURATOR.submittedBy, _curator_node))
+_accepted_template.add((_accept_node, CURATOR.submittedBy, _curator_node))
+_accepted_template.add(
+    (_curator_node, CURATOR.agentId, CURATOR_UUID))
+_accepted_template.bind('types', TYPES)
+_accepted_template.bind('curator', CURATOR)
+_accepted_template.bind('foaf', FOAF)
 
 
 class DeliveryRequest(Request):
@@ -58,7 +80,7 @@ class DeliveryRequest(Request):
 
         request_fields = q_res.pop()
 
-        if not all(request_fields):
+        if not any(request_fields):
             raise ValueError('Missing fields for delivery request')
 
         if request_fields[0] != self._request_node:
@@ -99,19 +121,70 @@ class DeliveryRequest(Request):
 class DeliveryAction(Action):
     __metaclass__ = ABCMeta
 
-    @abstractproperty
-    def request(self):
-        pass
-
     def __init__(self, message):
         super(DeliveryAction, self).__init__(message)
 
+    @staticmethod
+    def __get_accept_graph(message_id):
+        form = CGraph()
+        for t in _accepted_template:
+            form.add(t)
+        form.add((_accept_node, CURATOR.messageId, Literal(message_id, datatype=TYPES.UUID)))
+        form.add((_accept_node, CURATOR.submittedOn, Literal(datetime.now())))
+        for (prefix, ns) in _accepted_template.namespaces():
+            form.bind(prefix, ns)
+        return form
+
+    def __reply_accepted(self):
+        graph = self.__get_accept_graph(self.request.message_id)
+        self.sink.state = 'accepted'
+        reply(graph.serialize(format='turtle'), **self.request.channel)
+
     def submit(self):
         super(DeliveryAction, self).submit()
+        self.__reply_accepted()
+
+
+class DeliverySink(Sink):
+    __metaclass__ = ABCMeta
 
     @abstractmethod
-    def _persist(self):
-        super(DeliveryAction, self)._persist()
+    def _save(self, action):
+        super(DeliverySink, self)._save(action)
         self._pipe.sadd('deliveries', self._request_id)
-        self._pipe.hmset('{}:channel'.format(self._request_key), self.request.channel)
-        self._pipe.hmset('{}:broker'.format(self._request_key), self.request.broker)
+        broker_b64 = base64.b64encode('|'.join(action.request.broker.values()))
+        channel_b64 = base64.b64encode('|'.join(action.request.channel.values()))
+        self._pipe.hmset('channels:{}'.format(channel_b64), action.request.channel)
+        self._pipe.hmset('brokers:{}'.format(broker_b64), action.request.broker)
+        self._pipe.set('{}:channel'.format(self._request_key), channel_b64)
+        self._pipe.set('{}:broker'.format(self._request_key), broker_b64)
+
+    @abstractmethod
+    def _load(self):
+        super(DeliverySink, self)._load()
+        try:
+            del self._dict_fields['state']
+        except KeyError:
+            pass
+
+    @property
+    def state(self):
+        return r.hget('deliveries:{}'.format(self._request_id), 'state')
+
+    @state.setter
+    def state(self, value):
+        with r.pipeline(transaction=True) as p:
+            p.multi()
+            p.hset('deliveries:{}'.format(self._request_id), 'state', value)
+            p.execute()
+
+
+class DeliveryResponse(Response):
+    __metaclass__ = ABCMeta
+
+    def __init__(self, rid):
+        super(DeliveryResponse, self).__init__(rid)
+
+    @abstractmethod
+    def build(self):
+        super(DeliveryResponse, self).build()

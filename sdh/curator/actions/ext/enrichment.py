@@ -23,7 +23,12 @@
 """
 
 import logging
-from sdh.curator.actions.core.fragment import FragmentRequest, FragmentAction, RDF, CURATOR
+from sdh.curator.actions.core.fragment import FragmentRequest, FragmentAction, FragmentResponse, FragmentSink
+from sdh.curator.actions.core import CURATOR, TYPES, RDF, XSD, FOAF
+from sdh.curator.actions.core.utils import CGraph
+from rdflib import BNode, URIRef, Literal
+from sdh.curator.store import r
+from sdh.curator.actions.core.delivery import CURATOR_UUID
 
 __author__ = 'Fernando Serena'
 
@@ -79,23 +84,83 @@ class EnrichmentRequest(FragmentRequest):
 
 
 class EnrichmentAction(FragmentAction):
+    def __init__(self, message):
+        self.__request = EnrichmentRequest()
+        self.__sink = EnrichmentSink()
+        super(EnrichmentAction, self).__init__(message)
 
-    def build_graph_pattern(self, v_labels=None):
-        super(EnrichmentAction, self).build_graph_pattern()
+    @property
+    def sink(self):
+        return self.__sink
+
+    @classmethod
+    def response_class(cls):
+        return EnrichmentResponse
 
     @property
     def request(self):
-        if self._request is None:
-            self._request = EnrichmentRequest()
-        return self._request
+        return self.__request
 
     def submit(self):
         super(EnrichmentAction, self).submit()
 
-    def _persist(self):
-        super(EnrichmentAction, self)._persist()
+
+class EnrichmentSink(FragmentSink):
+    def __init__(self):
+        super(EnrichmentSink, self).__init__()
+        self.__target_links = None
+        self.__target_resource = None
+
+    def _save(self, action):
+        super(EnrichmentSink, self)._save(action)
         self._pipe.sadd('enrichments', self._request_id)
-        self._pipe.set('{}:enrich'.format(self._request_key), self._request.target_resource)
-        variable_links = [(str(pr), self._variables_dict[v]) for (pr, v) in self._request.target_links]
+        self._pipe.set('{}:enrich'.format(self._request_key), action.request.target_resource)
+        variable_links = [(str(pr), self._variables_dict[v]) for (pr, v) in action.request.target_links]
         self._pipe.sadd('{}:enrich:links'.format(self._request_key), *variable_links)
 
+    def _load(self):
+        super(EnrichmentSink, self)._load()
+        log.debug('Loading enrichment request data...')
+        self.__target_links = [URIRef(eval(pair_str)[0]) for pair_str in
+                               r.smembers('{}:enrich:links'.format(self._request_key))]
+        self.__target_resource = URIRef(r.get('{}:enrich'.format(self._request_key)))
+
+    @property
+    def target_links(self):
+        return self.__target_links
+
+    @property
+    def target_resource(self):
+        return self.__target_resource
+
+
+class EnrichmentResponse(FragmentResponse):
+    def __init__(self, rid):
+        self.__sink = EnrichmentSink()
+        self.__sink.load(rid)
+        super(EnrichmentResponse, self).__init__(rid)
+
+    @property
+    def sink(self):
+        return self.__sink
+
+    def build(self):
+        graph = CGraph()
+        resp_node = BNode('#response')
+        graph.add((resp_node, RDF.type, CURATOR.EnrichmentResponse))
+        graph.add((resp_node, CURATOR.messageId, Literal(self.sink.message_id, datatype=TYPES.UUID)))
+        graph.add((resp_node, CURATOR.responseTo, Literal(self.sink.message_id, datatype=TYPES.UUID)))
+        graph.add((resp_node, CURATOR.submittedOn, Literal(self.sink.submitted_on, datatype=XSD.dateTime)))
+        curator_node = BNode('#curator')
+        graph.add((resp_node, CURATOR.submittedBy, curator_node))
+        graph.add((curator_node, RDF.type, FOAF.Agent))
+        graph.add((curator_node, FOAF.agentId, CURATOR_UUID))
+        addition_node = BNode('#addition')
+        graph.add((resp_node, CURATOR.additionTarget, addition_node))
+        graph.add((addition_node, RDF.type, CURATOR.Variable))
+        for link in self.sink.target_links:
+            triples = self.graph.triples((self.sink.target_resource, link, None))
+            for (_, _, o) in triples:
+                graph.add((addition_node, link, o))
+        log.debug('Preparing to respond to request number {}'.format(self._request_id))
+        return graph.serialize(format='turtle')

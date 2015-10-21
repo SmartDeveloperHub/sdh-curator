@@ -63,7 +63,7 @@ def __setup_request_queue():
     channel.basic_qos(prefetch_count=1)
     channel.basic_consume(callback, queue=queue_name)
 
-    log.info('Listening requests from queue {}'.format(queue_name))
+    log.info('Waiting for curation requests')
     channel.start_consuming()
 
 

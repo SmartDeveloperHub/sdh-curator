@@ -36,50 +36,105 @@ log = logging.getLogger('sdh.curator.actions.base')
 R_INDEX_KEY = 'requests:index'
 
 
+def _fullname(f):
+    def wrapper():
+        clz = f()
+        return clz.__module__ + '.' + clz.__name__
+
+    return wrapper
+
+
 class Action(object):
     __metaclass__ = ABCMeta
 
     def __init__(self, message):
         self.__message = message
-        self._request = None
-        self._action_id = None
-        self._request_id = None
-        self._request_key = None
-        self._pipe = r.pipeline(transaction=True)
+        self.__action_id = None
+        self.__request_id = None
+        self.__request_key = None
 
     @abstractproperty
     def request(self):
         pass
 
+    @classmethod
+    def response_class(cls):
+        pass
+
+    @abstractproperty
+    def sink(self):
+        pass
+
     @property
     def request_id(self):
-        return self._request_id
+        return self.__request_id
+
+    @property
+    def id(self):
+        return self.__action_id
+
+    @property
+    def request_key(self):
+        return self.__request_key
 
     @abstractmethod
-    def _persist(self):
-        if r.zscore('requests', self._action_id):
-            raise ValueError('Duplicated request: {}'.format(self._action_id))
-        submitted_by_ts = calendar.timegm(self._request.submitted_on.timetuple())
-        self._pipe.zadd('requests', submitted_by_ts, self._action_id)
-        self._pipe.incr('requests:index')
-        self._request_key = 'requests:{}'.format(self._request_id)
-        self._pipe.hmset(self._request_key, {'submitted_by': self._request.submitted_by,
-                                             'submitted_on': self._request.submitted_on,
-                                             'message_id': self._request.message_id})
-
     def submit(self):
+        if not issubclass(self.response_class(), Response):
+            raise SystemError(
+                'The response class for this action is invalid: {}'.format(self.response_class()))
         self.request.parse(self.__message)
-        self._action_id = u'{}@{}'.format(self.request.message_id, self.request.submitted_by)
+        self.__action_id = u'{}@{}'.format(self.request.message_id, self.request.submitted_by)
+        self.__request_id = self.sink.save(self)
+
+
+class Sink(object):
+    __metaclass__ = ABCMeta
+
+    def __init__(self):
+        self._pipe = r.pipeline(transaction=True)
+        self._request_id = None
+        self._request_key = None
+
+    def load(self, rid):
+        if not r.keys('requests:{}'.format(rid)):
+            raise ValueError('Cannot load request: Unknown request id {}'.format(rid))
+        self._request_id = rid
+        self._request_key = 'requests:{}'.format(self._request_id)
+        self._load()
+
+    @abstractmethod
+    def _load(self):
+        self._dict_fields = r.hgetall('requests:{}'.format(self._request_id))
+
+    def __getattr__(self, item):
+        if item in self._dict_fields:
+            return self._dict_fields[item]
+        return super(Sink, self).__getattribute__(item)
+
+    def save(self, action):
         index_pipe = r.pipeline(transaction=True)
         index_pipe.watch(R_INDEX_KEY)
         index_pipe.multi()
-        rid = r.get(R_INDEX_KEY) or 0
+        self._request_id = r.get(R_INDEX_KEY) or 0
         index_pipe.incr(R_INDEX_KEY)
         index_pipe.execute()
-        self._request_id = rid
         self._pipe.multi()
-        self._persist()
+        self._save(action)
         self._pipe.execute()
+        return self._request_id
+
+    @abstractmethod
+    def _save(self, action):
+        if r.zscore('requests', action.id):
+            raise ValueError('Duplicated request: {}'.format(action.id))
+        submitted_by_ts = calendar.timegm(action.request.submitted_on.timetuple())
+        self._pipe.zadd('requests', submitted_by_ts, action.id)
+        self._pipe.incr('requests:index')
+        self._request_key = 'requests:{}'.format(self._request_id)
+        self._pipe.hmset(self._request_key, {'submitted_by': action.request.submitted_by,
+                                             'submitted_on': action.request.submitted_on,
+                                             'message_id': action.request.message_id,
+                                             'response_class': _fullname(action.response_class)()})
 
 
 class Request(object):
@@ -134,3 +189,19 @@ class Request(object):
     @property
     def submitted_on(self):
         return self._fields['submitted_on'].toPython()
+
+
+class Response(object):
+    __metaclass__ = ABCMeta
+
+    def __init__(self, rid):
+        self._request_id = rid
+        self._request_key = 'requests:{}'.format(rid)
+
+    @abstractmethod
+    def build(self):
+        pass
+
+    @abstractproperty
+    def sink(self):
+        pass

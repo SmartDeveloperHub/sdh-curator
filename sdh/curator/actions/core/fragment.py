@@ -23,19 +23,18 @@
 """
 import logging
 
-from abc import abstractproperty, ABCMeta, abstractmethod
+from abc import ABCMeta, abstractmethod
 from rdflib import Literal
-from sdh.curator.actions.core.delivery import DeliveryRequest, DeliveryAction
+from sdh.curator.actions.core.delivery import DeliveryRequest, DeliveryAction, DeliveryResponse, DeliverySink
 from sdh.curator.actions.core.utils import CGraph
-from rdflib.namespace import Namespace, RDF
-from sdh.curator.collect import agora_client
+from sdh.curator.actions.core import CURATOR, RDF
+from sdh.curator.daemons.fragment import agora_client
+from sdh.curator.store import r
+from sdh.curator.store.triples import graph as triples
 
 __author__ = 'Fernando Serena'
 
 log = logging.getLogger('sdh.curator.actions.fragment')
-
-CURATOR = Namespace('http://www.smartdeveloperhub.org/vocabulary/curator#')
-AMQP = Namespace('http://www.smartdeveloperhub.org/vocabulary/amqp#')
 
 
 class FragmentRequest(DeliveryRequest):
@@ -98,48 +97,76 @@ class FragmentAction(DeliveryAction):
 
     def __init__(self, message):
         super(FragmentAction, self).__init__(message)
+
+    def submit(self):
+        super(FragmentAction, self).submit()
+        # graph_pattern_str = '{ %s }' % ' . '.join(self._graph_pattern)
+        # log.debug(
+        #     '{} triple patterns identified:\n{}'.format(len(self._graph_pattern),
+        #                                                 graph_pattern_str.replace(' . ', ' .\n')))
+
+
+class FragmentSink(DeliverySink):
+    __metaclass__ = ABCMeta
+
+    def __init__(self):
+        super(FragmentSink, self).__init__()
         self._graph_pattern = set([])
         self._variables_dict = {}
 
-    @abstractproperty
-    def request(self):
-        pass
+    @staticmethod
+    def _n3(action, elm):
+        return elm.n3(action.request.pattern.namespace_manager)
 
-    def _n3(self, elm):
-        return elm.n3(self.request.pattern.namespace_manager)
-
-    @abstractmethod
-    def build_graph_pattern(self, v_labels=None):
-        variables = set(self.request.pattern.subjects(RDF.type, CURATOR.Variable))
+    def _build_graph_pattern(self, action, v_labels=None):
+        variables = set(action.request.pattern.subjects(RDF.type, CURATOR.Variable))
         if v_labels is not None:
             self._variables_dict = v_labels.copy()
         for i, v in enumerate(variables):
             self._variables_dict[v] = '?v{}'.format(i)
         for v in self._variables_dict.keys():
-            v_in = self.request.pattern.subject_predicates(v)
+            v_in = action.request.pattern.subject_predicates(v)
             for (s, pr) in v_in:
-                s_part = self._variables_dict[s] if s in self._variables_dict else self._n3(s)
-                self._graph_pattern.add(u'{} {} {}'.format(s_part, self._n3(pr), self._variables_dict[v]))
-            v_out = self.request.pattern.predicate_objects(v)
+                s_part = self._variables_dict[s] if s in self._variables_dict else self._n3(action, s)
+                self._graph_pattern.add(u'{} {} {}'.format(s_part, self._n3(action, pr), self._variables_dict[v]))
+            v_out = action.request.pattern.predicate_objects(v)
             for (pr, o) in [_ for _ in v_out if _[1] != CURATOR.Variable]:
-                o_part = self._variables_dict[o] if o in self._variables_dict else ('"{}"'.format(o) if isinstance(o, Literal) else self._n3(o))
-                p_part = self._n3(pr) if pr != RDF.type else 'a'
+                o_part = self._variables_dict[o] if o in self._variables_dict else (
+                    '"{}"'.format(o) if isinstance(o, Literal) else self._n3(action, o))
+                p_part = self._n3(action, pr) if pr != RDF.type else 'a'
                 self._graph_pattern.add(u'{} {} {}'.format(self._variables_dict[v], p_part, o_part))
 
-    def submit(self):
-        super(FragmentAction, self).submit()
-        graph_pattern_str = '{ %s }' % ' . '.join(self._graph_pattern)
-        log.debug(
-            '{} triple patterns identified:\n{}'.format(len(self._graph_pattern),
-                                                        graph_pattern_str.replace(' . ', ' .\n')))
-
     @abstractmethod
-    def _persist(self):
-        super(FragmentAction, self)._persist()
-        self.build_graph_pattern()
+    def _save(self, action):
+        super(FragmentSink, self)._save(action)
+        self._build_graph_pattern(action)
         self._pipe.sadd('fragments', self._request_id)
         self._pipe.sadd('{}:gp'.format(self._request_key), *self._graph_pattern)
 
+    @abstractmethod
+    def _load(self):
+        super(FragmentSink, self)._load()
+        self._dict_fields['gp'] = r.smembers('{}:gp'.format(self._request_id))
+
+
+class FragmentResponse(DeliveryResponse):
+    __metaclass__ = ABCMeta
+
+    def __init__(self, rid):
+        super(FragmentResponse, self).__init__(rid)
+
+    @abstractmethod
+    def build(self):
+        super(FragmentResponse, self).build()
+
     @property
-    def graph_pattern(self):
-        return self._graph_pattern
+    def _graph_pattern(self):
+        return r.smembers('{}:gp'.format(self._request_key))
+
+    @staticmethod
+    def query(query_object):
+        return triples.query(query_object)
+
+    @property
+    def graph(self):
+        return triples
