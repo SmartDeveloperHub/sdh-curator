@@ -146,7 +146,23 @@ class FragmentSink(DeliverySink):
     @abstractmethod
     def _load(self):
         super(FragmentSink, self)._load()
-        self._dict_fields['gp'] = r.smembers('{}:gp'.format(self._request_id))
+        self._dict_fields['gp'] = r.smembers('{}:gp'.format(self._request_key))
+
+    @property
+    def backed(self):
+        return not r.sismember('fragments', self._request_id)
+
+    @backed.setter
+    def backed(self, value):
+        def __pipe_set_func(f):
+            with r.pipeline(transaction=True) as p:
+                p.multi()
+                p.__getattribute__(f)('fragments', self._request_id)
+                p.execute()
+        if value:
+            __pipe_set_func('srem')
+        else:
+            __pipe_set_func('sadd')
 
 
 class FragmentResponse(DeliveryResponse):
@@ -158,10 +174,6 @@ class FragmentResponse(DeliveryResponse):
     @abstractmethod
     def build(self):
         super(FragmentResponse, self).build()
-
-    @property
-    def _graph_pattern(self):
-        return r.smembers('{}:gp'.format(self._request_key))
 
     @staticmethod
     def query(query_object):
