@@ -121,8 +121,8 @@ class EnrichmentSink(FragmentSink):
     def _load(self):
         super(EnrichmentSink, self)._load()
         log.debug('Loading enrichment request data...')
-        self.__target_links = [URIRef(eval(pair_str)[0]) for pair_str in
-                               r.smembers('{}:enrich:links'.format(self._request_key))]
+        self.__target_links = map(lambda (link, v): (URIRef(link), v), [eval(pair_str) for pair_str in
+                               r.smembers('{}:enrich:links'.format(self._request_key))])
         self.__target_resource = URIRef(r.get('{}:enrich'.format(self._request_key)))
 
     @property
@@ -158,7 +158,7 @@ class EnrichmentResponse(FragmentResponse):
         addition_node = BNode('#addition')
         graph.add((resp_node, CURATOR.additionTarget, addition_node))
         graph.add((addition_node, RDF.type, CURATOR.Variable))
-        for link in self.sink.target_links:
+        for link, v in self.sink.target_links:
             triples = self.graph.triples((self.sink.target_resource, link, None))
             for (_, _, o) in triples:
                 graph.add((addition_node, link, o))
