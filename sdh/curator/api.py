@@ -21,8 +21,6 @@
   limitations under the License.
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
-import StringIO
-
 import json
 
 from flask import make_response, request, jsonify, render_template, url_for
@@ -62,4 +60,22 @@ class Conflict(APIError):
 def handle_invalid_usage(error):
     response = jsonify(error.to_dict())
     response.status_code = error.status_code
+    return response
+
+
+@app.route('/triples/enrichment')
+def enrichment_triples():
+    from sdh.curator.store.triples import enrichment_graph
+    response = make_response(enrichment_graph.serialize(format='turtle'))
+    response.headers['Content-Type'] = 'text/turtle'
+
+    return response
+
+
+@app.route('/triples')
+def all_triples():
+    from sdh.curator.store.triples import graph
+    response = make_response(graph.serialize(format='turtle'))
+    response.headers['Content-Type'] = 'text/turtle'
+
     return response
