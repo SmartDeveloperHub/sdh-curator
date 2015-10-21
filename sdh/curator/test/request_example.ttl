@@ -20,29 +20,32 @@
 ##-- EXAMPLE ENRICHMENT REQUEST ----------------------------------------------##
 
 <#request> a curator:EnrichmentRequest ;
-  curator:messageId "00000000-0000-0000-0000-000000000001"^^types:UUID ;
+  curator:messageId "00000000-0000-0000-0000-000000000002"^^types:UUID ;
   curator:submittedBy <#connector> ;
   curator:submittedOn "2015-09-29T09:30:10+01:00"^^xsd:dateTime ;
   curator:replyTo <#deliveryChannel> ;
-  curator:targetResource <http://localhost:9001/ci/builds/1/> .
+  curator:targetResource <http://localhost:9001/ci/builds/2/> .
 
 <#connector> a foaf:Agent ;
   curator:agentId "00000000-0000-0000-0001-000000000001"^^types:UUID .
 
 <#deliveryChannel> a curator:DeliveryChannel ;
   amqp:broker <#broker> ;
-  amqp:exchangeName "ci.responses"^^types:Name ;
+  amqp:exchangeName "curator"^^types:Name ;
   amqp:queueName "builds"^^types:Name ;
-  amqp:routingKey "enrichment.responses"^^types:Name .
+  amqp:routingKey "response.ci"^^types:Name .
 
 <#broker> a amqp:Broker ;
   amqp:host "127.0.0.1"^^types:Hostname ;
   amqp:port "41980"^^types:Port ;
   amqp:virtualHost "/sdh/curator/"^^types:Path .
 
-<http://localhost:9001/ci/builds/1/> a curator:Variable;
-                                     dcterms:title "infra_backend-confluence-spam-remover" ;
-                                     ci:hasExecution  _:exec .
+<http://localhost:9001/ci/builds/2/>
+  ci:forBranch  _:branch .
 
-_:exec a curator:Variable ;
-       oslc_auto:state oslc_auto:complete .
+_:repository a curator:Variable ;
+  scm:hasBranch  _:branch ;
+  doap:name   "jenkins"^^xsd:string .
+
+_:branch a curator:Variable ;
+  doap:name      "master"^^xsd:string .

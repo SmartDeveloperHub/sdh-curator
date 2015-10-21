@@ -21,13 +21,27 @@
   limitations under the License.
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
+import StringIO
 
 __author__ = 'Fernando Serena'
 
 import pika
 import sys
-from rdflib import Graph, URIRef
+from rdflib import Graph, URIRef, RDF
+from rdflib.namespace import Namespace
 import os
+
+CURATOR = Namespace('http://www.smartdeveloperhub.org/vocabulary/curator#')
+
+
+def callback(ch, method, properties, body):
+    g = Graph()
+    g.parse(StringIO.StringIO(body), format='turtle')
+    if len(list(g.subjects(RDF.type, CURATOR.Accepted))) == 1:
+        print 'Request accepted!'
+    else:
+        print g.serialize(format='turtle')
+
 
 connection = pika.BlockingConnection(pika.ConnectionParameters(
     host='localhost'))
@@ -45,5 +59,9 @@ message = graph.serialize(format='turtle')
 channel.basic_publish(exchange='curator',
                       routing_key=routing_key,
                       body=message)
-print " [x] Sent %r:%r" % (routing_key, message)
-connection.close()
+
+channel.queue_declare(queue='builds' or '', durable=True)
+channel.queue_bind(exchange='curator', queue='builds', routing_key='response.#')
+channel.basic_consume(callback, queue='builds', no_ack=True)
+
+channel.start_consuming()
