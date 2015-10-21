@@ -23,39 +23,34 @@
 """
 import logging
 from threading import Thread
+from sdh.curator.store import r
 
 __author__ = 'Fernando Serena'
 
 log = logging.getLogger('sdh.curator.daemons.delivery')
 
 
-def __build_response(response_class, rid):
+def build_response(rid):
+    response_class = r.hget('requests:{}'.format(rid), 'response_class')
     (module_name, class_name) = tuple(response_class.split('.'))
     module = __import__(module_name)
     class_ = getattr(module, class_name)
     instance = class_(rid)
-    return instance.build()
+    return instance
 
 
 def __deliver_responses():
     import time
-    from sdh.curator.store import r
+
     from sdh.curator.messaging.reply import reply
     log.info('Delivery thread started')
     while True:
-        for rid in r.smembers('deliveries'):
-            delivery_data = r.hgetall('deliveries:{}'.format(rid))
-            if delivery_data['state'] == 'ready':
+        for rid in r.smembers('deliveries:ready'):
+            response = build_response(rid)
+            if response.sink.state == 'ready':
                 log.debug('Delivery-{} in process...'.format(rid))
-                channel_b64 = r.get('requests:{}:channel'.format(rid))
-                channel_dict = r.hgetall('channels:{}'.format(channel_b64))
-                response_class = r.hget('requests:{}'.format(rid), 'response_class')
-                response = __build_response(response_class, rid)
-                reply(response, **channel_dict)
-                with r.pipeline(transaction=True) as p:
-                    p.multi()
-                    p.hset('deliveries:{}'.format(rid), 'state', 'sent')
-                    p.execute()
+                reply(response.build(), **response.sink.channel)
+                response.sink.state = 'sent'
 
         time.sleep(1)
 

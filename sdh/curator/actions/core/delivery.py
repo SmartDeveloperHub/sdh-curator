@@ -162,6 +162,10 @@ class DeliverySink(Sink):
     @abstractmethod
     def _load(self):
         super(DeliverySink, self)._load()
+        channel_b64 = r.get('{}:channel'.format(self._request_key))
+        broker_b64 = self._dict_fields['broker'] = r.get('{}:broker'.format(self._request_key))
+        self._dict_fields['channel'] = r.hgetall('channels:{}'.format(channel_b64))
+        self._dict_fields['broker'] = r.hgetall('brokers:{}'.format(broker_b64))
         try:
             del self._dict_fields['state']
         except KeyError:
@@ -175,6 +179,10 @@ class DeliverySink(Sink):
     def state(self, value):
         with r.pipeline(transaction=True) as p:
             p.multi()
+            if value == 'ready':
+                p.sadd('deliveries:ready', self._request_id)
+            else:
+                p.srem('deliveries:ready', self._request_id)
             p.hset('deliveries:{}'.format(self._request_id), 'state', value)
             p.execute()
 
