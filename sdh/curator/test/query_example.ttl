@@ -20,7 +20,7 @@
 ##-- EXAMPLE ENRICHMENT REQUEST ----------------------------------------------##
 
 <#request> a curator:EnrichmentRequest ;
-  curator:messageId "00000000-0000-0000-0000-000000000004"^^types:UUID ;
+  curator:messageId "00000000-0000-0000-0000-000000000001"^^types:UUID ;
   curator:submittedBy <#connector> ;
   curator:submittedOn "2015-09-29T09:30:10+01:00"^^xsd:dateTime ;
   curator:replyTo <#deliveryChannel> ;
@@ -32,16 +32,13 @@
 <#deliveryChannel> a curator:DeliveryChannel ;
   amqp:broker <#broker> ;
   amqp:exchangeName "curator"^^types:Name ;
-  amqp:queueName "builds"^^types:Name ;
-  amqp:routingKey "response.ci"^^types:Name .
+  amqp:queueName ""^^types:Name ;
+  amqp:routingKey "response.query"^^types:Name .
 
 <#broker> a amqp:Broker ;
   amqp:host "127.0.0.1"^^types:Hostname ;
   amqp:port "41980"^^types:Port ;
   amqp:virtualHost "/sdh/curator/"^^types:Path .
-
-<http://localhost:9001/ci/builds/3/>
-  ci:forBranch  _:branch .
 
 _:repository a curator:Variable ;
   scm:hasBranch  _:branch ;

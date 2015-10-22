@@ -26,6 +26,7 @@ import json
 from flask import make_response, request, jsonify, render_template, url_for
 from flask_negotiate import consumes
 from sdh.curator.server import app
+from sdh.curator.store.triples import graph
 
 __author__ = 'Fernando Serena'
 
@@ -65,8 +66,7 @@ def handle_invalid_usage(error):
 
 @app.route('/triples/enrichment')
 def enrichment_triples():
-    from sdh.curator.store.triples import enrichment_graph
-    response = make_response(enrichment_graph.serialize(format='turtle'))
+    response = make_response(graph.get_context('#enrichment').serialize(format='turtle'))
     response.headers['Content-Type'] = 'text/turtle'
 
     return response
@@ -74,7 +74,6 @@ def enrichment_triples():
 
 @app.route('/triples')
 def all_triples():
-    from sdh.curator.store.triples import graph
     response = make_response(graph.serialize(format='turtle'))
     response.headers['Content-Type'] = 'text/turtle'
 

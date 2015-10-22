@@ -182,3 +182,7 @@ class FragmentResponse(DeliveryResponse):
     @property
     def graph(self):
         return triples
+
+    @property
+    def fragment(self):
+        return None

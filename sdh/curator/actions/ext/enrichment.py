@@ -26,13 +26,33 @@ import logging
 from sdh.curator.actions.core.fragment import FragmentRequest, FragmentAction, FragmentResponse, FragmentSink
 from sdh.curator.actions.core import CURATOR, TYPES, RDF, XSD, FOAF
 from sdh.curator.actions.core.utils import CGraph
-from rdflib import BNode, URIRef, Literal
+from rdflib import BNode, URIRef, Literal, RDFS
 from sdh.curator.store import r
 from sdh.curator.actions.core.delivery import CURATOR_UUID
+from sdh.curator.daemons.fragment import plugins, AGORA
+from sdh.curator.store.triples import graph as triples
 
 __author__ = 'Fernando Serena'
 
 log = logging.getLogger('sdh.curator.actions.enrichment')
+
+
+def __process_fragment_triple(sink, (c, s, p, o), graph):
+    target = sink.target_resource
+    links = dict(map(lambda (l, v): (v, l), sink.target_links))
+    var_candidate = list(graph.objects(c, AGORA.subject))[0]
+    if (var_candidate, RDF.type, AGORA.Variable) in graph:
+        var_label = str(list(graph.objects(var_candidate, RDFS.label))[0])
+        if var_label in links:
+            link = links[var_label]
+            if not sink.is_link_set(link):
+                triples.get_context('#enrichment').add((target, link, s))
+                sink.set_link(links[var_label])
+                print u'{} {} {} .'.format(target.n3(), link.n3(graph.namespace_manager),
+                                           s.n3())
+
+
+plugins.append(__process_fragment_triple)
 
 
 class EnrichmentRequest(FragmentRequest):
@@ -117,12 +137,15 @@ class EnrichmentSink(FragmentSink):
         self._pipe.set('{}:enrich'.format(self._request_key), action.request.target_resource)
         variable_links = [(str(pr), self._variables_dict[v]) for (pr, v) in action.request.target_links]
         self._pipe.sadd('{}:enrich:links'.format(self._request_key), *variable_links)
+        self._pipe.hmset('{}:enrich:links:status'.format(self._request_key),
+                         dict((pr, None) for (pr, _) in action.request.target_links))
 
     def _load(self):
         super(EnrichmentSink, self)._load()
         log.debug('Loading enrichment request data...')
         self.__target_links = map(lambda (link, v): (URIRef(link), v), [eval(pair_str) for pair_str in
-                               r.smembers('{}:enrich:links'.format(self._request_key))])
+                                                                        r.smembers('{}:enrich:links'.format(
+                                                                            self._request_key))])
         self.__target_resource = URIRef(r.get('{}:enrich'.format(self._request_key)))
 
     @property
@@ -132,6 +155,16 @@ class EnrichmentSink(FragmentSink):
     @property
     def target_resource(self):
         return self.__target_resource
+
+    def is_link_set(self, link):
+        status = r.hget('{}:enrich:links:status'.format(self._request_key), str(link))
+        return eval(status)
+
+    def set_link(self, link):
+        with r.pipeline(transaction=True) as p:
+            p.multi()
+            p.hset('{}:enrich:links:status'.format(self._request_key), link, True)
+            p.execute()
 
 
 class EnrichmentResponse(FragmentResponse):
@@ -145,11 +178,13 @@ class EnrichmentResponse(FragmentResponse):
         return self.__sink
 
     def build(self):
+        log.debug('Building a response to request number {}'.format(self._request_id))
         graph = CGraph()
         resp_node = BNode('#response')
         graph.add((resp_node, RDF.type, CURATOR.EnrichmentResponse))
         graph.add((resp_node, CURATOR.messageId, Literal(self.sink.message_id, datatype=TYPES.UUID)))
         graph.add((resp_node, CURATOR.responseTo, Literal(self.sink.message_id, datatype=TYPES.UUID)))
+        graph.add((resp_node, CURATOR.targetResource, self.sink.target_resource))
         graph.add((resp_node, CURATOR.submittedOn, Literal(self.sink.submitted_on, datatype=XSD.dateTime)))
         curator_node = BNode('#curator')
         graph.add((resp_node, CURATOR.submittedBy, curator_node))
@@ -162,5 +197,4 @@ class EnrichmentResponse(FragmentResponse):
             triples = self.graph.triples((self.sink.target_resource, link, None))
             for (_, _, o) in triples:
                 graph.add((addition_node, link, o))
-        log.debug('Preparing to respond to request number {}'.format(self._request_id))
         return graph.serialize(format='turtle')

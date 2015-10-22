@@ -27,4 +27,4 @@ from rdflib import ConjunctiveGraph
 __author__ = 'Fernando Serena'
 
 graph = ConjunctiveGraph()
-enrichment_graph = graph.get_context('http://curator.org#enrichment')
+
