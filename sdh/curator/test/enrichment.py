@@ -22,16 +22,20 @@
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
 import StringIO
+import uuid
 
 __author__ = 'Fernando Serena'
 
 import pika
 import sys
-from rdflib import Graph, URIRef, RDF
+from rdflib import Graph, URIRef, RDF, Literal
 from rdflib.namespace import Namespace
 import os
+from datetime import datetime
 
 CURATOR = Namespace('http://www.smartdeveloperhub.org/vocabulary/curator#')
+TYPES = Namespace('http://www.smartdeveloperhub.org/vocabulary/types#')
+AMQP = Namespace('http://www.smartdeveloperhub.org/vocabulary/amqp#')
 
 
 def callback(ch, method, properties, body):
@@ -51,8 +55,13 @@ routing_key = 'request.enrichment'
 
 graph = Graph()
 script_dir = os.path.dirname(__file__)
-with open(os.path.join(script_dir, 'request_example.ttl')) as f:
+with open(os.path.join(script_dir, 'enrichment.ttl')) as f:
     graph.parse(file=f, format='turtle')
+
+req_node = list(graph.subjects(RDF.type, CURATOR.QueryRequest)).pop()
+message_id = Literal(str(uuid.uuid4()), datatype=TYPES.UUID)
+graph.set((req_node, CURATOR.messageId, message_id))
+graph.set((req_node, CURATOR.submittedOn, Literal(datetime.now())))
 
 message = graph.serialize(format='turtle')
 
