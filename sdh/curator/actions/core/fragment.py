@@ -22,9 +22,10 @@
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
 import logging
+from shortuuid import uuid
 
 from abc import ABCMeta, abstractmethod
-from rdflib import Literal
+from rdflib import Literal, URIRef, XSD
 from sdh.curator.actions.core.delivery import DeliveryRequest, DeliveryAction, DeliveryResponse, DeliverySink
 from sdh.curator.actions.core.utils import CGraph
 from sdh.curator.actions.core import CURATOR, RDF
@@ -100,10 +101,6 @@ class FragmentAction(DeliveryAction):
 
     def submit(self):
         super(FragmentAction, self).submit()
-        # graph_pattern_str = '{ %s }' % ' . '.join(self._graph_pattern)
-        # log.debug(
-        #     '{} triple patterns identified:\n{}'.format(len(self._graph_pattern),
-        #                                                 graph_pattern_str.replace(' . ', ' .\n')))
 
 
 class FragmentSink(DeliverySink):
@@ -140,13 +137,23 @@ class FragmentSink(DeliverySink):
     def _save(self, action):
         super(FragmentSink, self)._save(action)
         self._build_graph_pattern(action)
-        self._pipe.sadd('fragments', self._request_id)
-        self._pipe.sadd('{}:gp'.format(self._request_key), *self._graph_pattern)
+        fgm_id = str(uuid())
+        self._pipe.sadd('fragments', fgm_id)
+        self._pipe.sadd('fragments:{}:gp'.format(fgm_id), *self._graph_pattern)
+        self._pipe.sadd('fragments:{}:requests'.format(fgm_id), self._request_id)
+        self._pipe.hset('{}'.format(self._request_key), 'gp', fgm_id)
+
+    @abstractmethod
+    def _remove(self, pipe):
+        fgm_id = r.hget('{}'.format(self._request_key), 'gp')
+        pipe.srem('fragments:{}:requests'.format(fgm_id), self._request_id)
+        super(FragmentSink, self)._remove(pipe)
 
     @abstractmethod
     def _load(self):
         super(FragmentSink, self)._load()
-        self._dict_fields['gp'] = r.smembers('{}:gp'.format(self._request_key))
+        fgm_id = self._dict_fields['gp']
+        self._dict_fields['gp'] = r.smembers('fragments:{}'.format(fgm_id))
 
     @property
     def backed(self):
@@ -185,4 +192,18 @@ class FragmentResponse(DeliveryResponse):
 
     @property
     def fragment(self):
-        return None
+        def __transform(x):
+            if x.startswith('"'):
+                return Literal(x.replace('"', ''), datatype=XSD.string).n3(self.graph.namespace_manager)
+            return x
+
+        gp = [' '.join([__transform(part) for part in tp.split(' ')]) for tp in self.sink.gp]
+        where_gp = ' . '.join(gp)
+        query = """CONSTRUCT WHERE { %s }""" % where_gp
+        return self.graph.query(query)
+
+
+
+
+
+
