@@ -23,37 +23,32 @@
 """
 
 import logging
+from datetime import datetime
+import uuid
+
 from sdh.curator.actions.core.fragment import FragmentRequest, FragmentAction, FragmentResponse, FragmentSink
 from sdh.curator.actions.core import CURATOR, TYPES, RDF, XSD, FOAF
 from sdh.curator.actions.core.utils import CGraph
-from rdflib import BNode, URIRef, Literal, RDFS
-from sdh.curator.store import r
+from rdflib import BNode, Literal
 from sdh.curator.actions.core.delivery import CURATOR_UUID
-from sdh.curator.daemons.fragment import plugins, AGORA
-from sdh.curator.store.triples import graph as triples
+from sdh.curator.messaging.reply import reply
+from sdh.curator.daemons.fragment import FragmentPlugin
 
 __author__ = 'Fernando Serena'
 
 log = logging.getLogger('sdh.curator.actions.query')
 
 
-def __process_fragment_triple(sink, (c, s, p, o), graph):
-    pass
-    # target = sink.target_resource
-    # links = dict(map(lambda (l, v): (v, l), sink.target_links))
-    # var_candidate = list(graph.objects(c, AGORA.subject))[0]
-    # if (var_candidate, RDF.type, AGORA.Variable) in graph:
-    #     var_label = str(list(graph.objects(var_candidate, RDFS.label))[0])
-    #     if var_label in links:
-    #         link = links[var_label]
-    #         if not sink.is_link_set(link):
-    #             triples.get_context('#enrichment').add((target, link, s))
-    #             sink.set_link(links[var_label])
-    #             print u'{} {} {} .'.format(target.n3(), link.n3(graph.namespace_manager),
-    #                                        s.n3())
+class QueryPlugin(FragmentPlugin):
+    def consume(self, sink, (c, s, p, o), graph):
+        reply(u'{} {} {} .'.format(s.n3(), p.n3(graph.namespace_manager), o.n3(graph.namespace_manager)),
+              **sink.channel)
+
+    def complete(self, sink):
+        pass
 
 
-# plugins.append(__process_fragment_triple)
+FragmentPlugin.register(QueryPlugin)
 
 
 class QueryRequest(FragmentRequest):
@@ -89,6 +84,9 @@ class QueryAction(FragmentAction):
 
 
 class QuerySink(FragmentSink):
+    def _remove(self, pipe):
+        super(QuerySink, self)._remove(pipe)
+
     def __init__(self):
         super(QuerySink, self).__init__()
 
@@ -103,7 +101,6 @@ class QueryResponse(FragmentResponse):
     def __init__(self, rid):
         self.__sink = QuerySink()
         self.__sink.load(rid)
-        self.__v_index = 0
         super(QueryResponse, self).__init__(rid)
 
     @property
@@ -111,29 +108,16 @@ class QueryResponse(FragmentResponse):
         return self.__sink
 
     def build(self):
-        def __bound_literals(x):
-            import re
-            new_x = re.sub('".*"', lambda y: '?v{}'.format(self.__v_index), x)
-            self.__v_index += 1
-            return new_x
-
-        gp = self.sink.gp
-        self.__v_index = len(gp)
-        log.debug('Building a query result for request number {}'.format(self._request_id))
-        construct = map(lambda x: __bound_literals(x), gp)
-        construct_gp = ' . '.join(construct)
-        where = set.union(set(construct), gp)
-        where_gp = ' . '.join(where)
-        query = """CONSTRUCT { %s } WHERE { %s }""" % (construct_gp, where_gp)
-        res_graph = self.query(query)
+        fragment = self.fragment
         graph = CGraph()
-        for t in res_graph:
+        log.debug('Building a query result for request number {}'.format(self._request_id))
+        for t in fragment:
             graph.add(t)
         resp_node = BNode('#response')
         graph.add((resp_node, RDF.type, CURATOR.QueryResponse))
-        graph.add((resp_node, CURATOR.messageId, Literal(self.sink.message_id, datatype=TYPES.UUID)))
+        graph.add((resp_node, CURATOR.messageId, Literal(str(uuid.uuid4()), datatype=TYPES.UUID)))
         graph.add((resp_node, CURATOR.responseTo, Literal(self.sink.message_id, datatype=TYPES.UUID)))
-        graph.add((resp_node, CURATOR.submittedOn, Literal(self.sink.submitted_on, datatype=XSD.dateTime)))
+        graph.add((resp_node, CURATOR.submittedOn, Literal(datetime.now(), datatype=XSD.dateTime)))
         curator_node = BNode('#curator')
         graph.add((resp_node, CURATOR.submittedBy, curator_node))
         graph.add((curator_node, RDF.type, FOAF.Agent))
