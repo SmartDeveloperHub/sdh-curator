@@ -32,12 +32,13 @@ from sdh.curator.messaging.reply import reply
 from sdh.curator.store import r
 from datetime import datetime
 import base64
+import uuid
 
 __author__ = 'Fernando Serena'
 
 log = logging.getLogger('sdh.curator.actions.delivery')
 
-CURATOR_UUID = Literal('00000000-0000-0000-0001-000000000002', datatype=TYPES.UUID)
+CURATOR_UUID = Literal(str(uuid.uuid4()), datatype=TYPES.UUID)
 
 _accepted_template = CGraph()
 _accept_node = BNode('#accepted')
@@ -137,12 +138,16 @@ class DeliveryAction(Action):
 
     def __reply_accepted(self):
         graph = self.__get_accept_graph(self.request.message_id)
-        self.sink.state = 'accepted'
         reply(graph.serialize(format='turtle'), **self.request.channel)
+        self.sink.state = 'accepted'
 
     def submit(self):
         super(DeliveryAction, self).submit()
-        self.__reply_accepted()
+        try:
+            self.__reply_accepted()
+        except Exception, e:
+            log.warning(e.message)
+            self.sink.remove()
 
 
 class DeliverySink(Sink):
@@ -170,6 +175,13 @@ class DeliverySink(Sink):
             del self._dict_fields['state']
         except KeyError:
             pass
+
+    @abstractmethod
+    def _remove(self, pipe):
+        super(DeliverySink, self)._remove(pipe)
+        pipe.delete('deliveries:{}'.format(self._request_id))
+        pipe.srem('deliveries', self._request_id)
+        # TODO: Delete channel if it is unique
 
     @property
     def state(self):
