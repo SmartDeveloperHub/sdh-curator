@@ -25,6 +25,7 @@
 import StringIO
 import calendar
 import logging
+from shortuuid import uuid
 
 from abc import abstractproperty, abstractmethod, ABCMeta
 from sdh.curator.actions.core.utils import CGraph
@@ -33,7 +34,6 @@ from sdh.curator.store import r
 __author__ = 'Fernando Serena'
 
 log = logging.getLogger('sdh.curator.actions.base')
-R_INDEX_KEY = 'requests:index'
 
 
 def _fullname(f):
@@ -112,16 +112,26 @@ class Sink(object):
         return super(Sink, self).__getattribute__(item)
 
     def save(self, action):
-        index_pipe = r.pipeline(transaction=True)
-        index_pipe.watch(R_INDEX_KEY)
-        index_pipe.multi()
-        self._request_id = r.get(R_INDEX_KEY) or 0
-        index_pipe.incr(R_INDEX_KEY)
-        index_pipe.execute()
+        self._request_id = str(uuid())
         self._pipe.multi()
         self._save(action)
         self._pipe.execute()
         return self._request_id
+
+    def remove(self):
+        with r.pipeline(transaction=True) as p:
+            p.multi()
+            action_id = p.hget(self._request_key, 'id')
+            p.zrem('requests', action_id)
+            r_keys = r.keys('{}*'.format(self._request_key))
+            for key in r_keys:
+                p.delete(key)
+            self._remove(p)
+            p.execute()
+
+    @abstractmethod
+    def _remove(self, pipe):
+        pass
 
     @abstractmethod
     def _save(self, action):
@@ -129,19 +139,20 @@ class Sink(object):
             raise ValueError('Duplicated request: {}'.format(action.id))
         submitted_by_ts = calendar.timegm(action.request.submitted_on.timetuple())
         self._pipe.zadd('requests', submitted_by_ts, action.id)
-        self._pipe.incr('requests:index')
         self._request_key = 'requests:{}'.format(self._request_id)
         self._pipe.hmset(self._request_key, {'submitted_by': action.request.submitted_by,
                                              'submitted_on': action.request.submitted_on,
                                              'message_id': action.request.message_id,
-                                             'response_class': _fullname(action.response_class)()})
+                                             'response_class': _fullname(action.response_class)(),
+                                             'id': action.id})
 
 
 class Request(object):
     def __init__(self):
+        from sdh.curator.actions.core import CURATOR, AMQP
         self._graph = CGraph()
-        self._graph.bind('curator', 'http://www.smartdeveloperhub.org/vocabulary/curator#')
-        self._graph.bind('amqp', 'http://www.smartdeveloperhub.org/vocabulary/amqp#')
+        self._graph.bind('curator', CURATOR)
+        self._graph.bind('amqp', AMQP)
         self._request_node = None
         self._fields = {}
 
