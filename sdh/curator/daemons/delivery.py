@@ -32,6 +32,8 @@ log = logging.getLogger('sdh.curator.daemons.delivery')
 
 def build_response(rid):
     response_class = r.hget('requests:{}'.format(rid), 'response_class')
+    if response_class is None:
+        raise AttributeError('Cannot create a response for {}'.format(rid))
     (module_name, class_name) = tuple(response_class.split('.'))
     module = __import__(module_name)
     class_ = getattr(module, class_name)
@@ -46,11 +48,15 @@ def __deliver_responses():
     log.info('Delivery thread started')
     while True:
         for rid in r.smembers('deliveries:ready'):
-            response = build_response(rid)
-            if response.sink.state == 'ready':
-                log.debug('Delivery-{} in process...'.format(rid))
-                reply(response.build(), **response.sink.channel)
-                response.sink.state = 'sent'
+            try:
+                response = build_response(rid)
+                if response.sink.state == 'ready':
+                    log.debug('Delivery-{} in process...'.format(rid))
+                    reply(response.build(), **response.sink.channel)
+                    response.sink.state = 'sent'
+            except AttributeError:
+                pass
+                # A response couldn't be created
 
         time.sleep(1)
 
