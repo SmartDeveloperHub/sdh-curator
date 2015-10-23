@@ -29,7 +29,7 @@ from sdh.curator.actions.core.utils import CGraph
 from rdflib import BNode, URIRef, Literal, RDFS
 from sdh.curator.store import r
 from sdh.curator.actions.core.delivery import CURATOR_UUID
-from sdh.curator.daemons.fragment import plugins, AGORA
+from sdh.curator.daemons.fragment import FragmentPlugin, AGORA
 from sdh.curator.store.triples import graph as triples
 
 __author__ = 'Fernando Serena'
@@ -37,22 +37,26 @@ __author__ = 'Fernando Serena'
 log = logging.getLogger('sdh.curator.actions.enrichment')
 
 
-def __process_fragment_triple(sink, (c, s, p, o), graph):
-    target = sink.target_resource
-    links = dict(map(lambda (l, v): (v, l), sink.target_links))
-    var_candidate = list(graph.objects(c, AGORA.subject))[0]
-    if (var_candidate, RDF.type, AGORA.Variable) in graph:
-        var_label = str(list(graph.objects(var_candidate, RDFS.label))[0])
-        if var_label in links:
-            link = links[var_label]
-            if not sink.is_link_set(link):
-                triples.get_context('#enrichment').add((target, link, s))
-                sink.set_link(links[var_label])
-                print u'{} {} {} .'.format(target.n3(), link.n3(graph.namespace_manager),
-                                           s.n3())
+class EnrichmentPlugin(FragmentPlugin):
+    def consume(self, sink, (c, s, p, o), graph):
+        target = sink.target_resource
+        links = dict(map(lambda (l, v): (v, l), sink.target_links))
+        var_candidate = list(graph.objects(c, AGORA.subject))[0]
+        if (var_candidate, RDF.type, AGORA.Variable) in graph:
+            var_label = str(list(graph.objects(var_candidate, RDFS.label))[0])
+            if var_label in links:
+                link = links[var_label]
+                if not sink.is_link_set(link):
+                    triples.get_context('#enrichment').add((target, link, s))
+                    sink.set_link(links[var_label])
+                    print u'{} {} {} .'.format(target.n3(), link.n3(graph.namespace_manager),
+                                               s.n3())
+
+    def complete(self, sink):
+        pass
 
 
-plugins.append(__process_fragment_triple)
+FragmentPlugin.register(EnrichmentPlugin)
 
 
 class EnrichmentRequest(FragmentRequest):
@@ -126,6 +130,9 @@ class EnrichmentAction(FragmentAction):
 
 
 class EnrichmentSink(FragmentSink):
+    def _remove(self, pipe):
+        super(FragmentSink, self)._remove(pipe)
+
     def __init__(self):
         super(EnrichmentSink, self).__init__()
         self.__target_links = None
