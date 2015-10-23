@@ -25,28 +25,38 @@
 import logging
 
 import pika
+from pika.exceptions import ChannelClosed
 
 __author__ = 'Fernando Serena'
 
 log = logging.getLogger('sdh.curator.messaging.reply')
 
 
-def reply(message, exchange=None, routing_key=None, queue=None):
+def reply(message, exchange=None, routing_key=None, queue=None, mandatory=False):
     connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
-    channel = connection.channel()
-    if not any([exchange, routing_key, queue]):
-        raise AttributeError('Insufficient delivery channel parameters')
+    try:
+        channel = connection.channel()
+        if not any([exchange, routing_key, queue]):
+            raise AttributeError('Insufficient delivery channel parameters')
 
-    channel.exchange_declare(exchange='curator',
-                             type='topic', durable=True)
+        exchange = '' if exchange is None else exchange
+        routing_key = '' if routing_key is None else routing_key
+        if not exchange and not routing_key:
+            routing_key = queue
+            mandatory = True
+            channel.confirm_delivery()
 
-    exchange = '' if exchange is None else exchange
-    routing_key = '' if routing_key is None else routing_key
+        sent = channel.basic_publish(exchange=exchange,
+                                     routing_key=routing_key,
+                                     body=message,
+                                     mandatory=mandatory)
 
-    channel.basic_publish(exchange=exchange,
-                          routing_key=routing_key,
-                          body=message)
-    log.debug('Sent message to delivery channel: \n -exchange: {}\n -routing_key: {}'.format(
-        exchange, queue, routing_key
-    ))
-    connection.close()
+        if mandatory and not sent:
+            raise EnvironmentError('The queue {} does not exist'.format(queue))
+        log.debug('Sent message to delivery channel: \n -exchange: {}\n -routing_key: {}'.format(
+            exchange, routing_key
+        ))
+    except ChannelClosed:
+        raise EnvironmentError('The queue {} does not exist'.format(queue))
+    finally:
+        connection.close()
