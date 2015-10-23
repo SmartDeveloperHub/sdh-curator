@@ -21,6 +21,7 @@
   limitations under the License.
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
+from abc import ABCMeta, abstractmethod
 
 from threading import Thread
 import logging
@@ -38,34 +39,92 @@ log = logging.getLogger('sdh.curator.daemons.fragment')
 agora_host = app.config['AGORA']
 agora_client = Agora(agora_host)
 
-plugins = []
+
+class FragmentPlugin(object):
+    __plugins = []
+
+    @abstractmethod
+    def consume(self, sink, quad, graph):
+        pass
+
+    @abstractmethod
+    def complete(self, sink):
+        pass
+
+    @classmethod
+    def register(cls, p):
+        if issubclass(p, cls):
+            cls.__plugins.append(p())
+        else:
+            raise ValueError('{} is not a valid fragment plugin'.format(p))
+
+    @classmethod
+    def plugins(cls):
+        return cls.__plugins[:]
 
 
 def __on_load_seed(s, _):
     log.debug('{} dereferenced'.format(s))
 
 
+def __bind_prefixes(source_graph):
+    map(lambda (prefix, uri): triples.bind(prefix, uri), source_graph.namespaces())
+
+
+def __consume_quad(quad, graph, sinks):
+    def __sink_consume():
+        for rid in sinks:
+            sink = sinks[rid]
+            try:
+                plugin.consume(sink, quad, graph)
+            except Exception as e:
+                sink.remove()
+                yield rid
+                log.warning(e.message)
+
+    for plugin in FragmentPlugin.plugins():
+        invalid_sinks = list(__sink_consume())
+        for _ in invalid_sinks:
+            del sinks[_]
+        triples.add(quad[1:])   # Don't add context
+
+
+def __notify_completion(sinks):
+    for plugin in FragmentPlugin.plugins():
+        try:
+            for sink in sinks.values():
+                sink.state = 'ready'
+                sink.backed = True
+                plugin.complete(sink)
+        except Exception as e:
+            log.warning(e.message)
+
+
+def __pull_fragment(fid):
+    def __load_fragment_requests():
+        requests_ = r.smembers('fragments:{}:requests'.format(fid))
+        sinks_ = {rid: build_response(rid).sink for rid in requests_}
+        return requests_, sinks_
+
+    tps = r.smembers('fragments:{}:gp'.format(fid))
+    requests, r_sinks = __load_fragment_requests()
+    log.debug('Pulling fragment {}, described by {}...'.format(fid, tps))
+    fgm_gen, _, graph = agora_client.get_fragment_generator('{ %s }' % ' . '.join(tps),
+                                                            on_load=__on_load_seed)
+    __bind_prefixes(graph)
+
+    for quad in fgm_gen:
+        __consume_quad(quad, graph, r_sinks)
+        if r.scard('fragments:{}:requests'.format(fid)) != len(requests):
+            requests, r_sinks = __load_fragment_requests()
+    __notify_completion(r_sinks)
+
+
 def __collect_fragments():
     log.info('Collector thread started')
     while True:
-        for rid in r.smembers('fragments'):
-            r_sink = build_response(rid).sink
-            if r_sink.state == 'accepted' and not r_sink.backed:
-                tps = r_sink.gp
-                log.debug('Request-{} asked for {}'.format(rid, list(tps)))
-                log.debug('Pulling the corresponding fragment...')
-                fgm_gen, _, graph = agora_client.get_fragment_generator('{ %s }' % ' . '.join(tps),
-                                                                        on_load=__on_load_seed)
-                for (prefix, uri) in graph.namespaces():
-                    triples.bind(prefix, uri)
-                for c, s, p, o in fgm_gen:
-                    for plugin in plugins:
-                        plugin(r_sink, (c, s, p, o), graph)
-                    triples.add((s, p, o))
-                r_sink.state = 'ready'
-                r_sink.backed = True
+        map(lambda fid: __pull_fragment(fid), r.smembers('fragments'))
         time.sleep(1)
-
 
 th = Thread(target=__collect_fragments)
 th.daemon = True
