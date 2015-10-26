@@ -94,7 +94,6 @@ def __notify_completion(sinks):
         try:
             for sink in sinks.values():
                 sink.state = 'ready'
-                sink.backed = True
                 plugin.complete(sink)
         except Exception as e:
             log.warning(e.message)
@@ -121,7 +120,7 @@ def __pull_fragment(fid):
         p.multi()
         state_key = 'fragments:{}:sync'.format(fid)
         p.set(state_key, True)
-        p.expire(state_key, 5)
+        p.expire(state_key, 10)
         p.execute()
     __notify_completion(r_sinks)
 
