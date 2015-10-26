@@ -24,7 +24,6 @@
 import logging
 from threading import Thread
 from sdh.curator.store import r
-import importlib
 
 __author__ = 'Fernando Serena'
 
@@ -32,14 +31,12 @@ log = logging.getLogger('sdh.curator.daemons.delivery')
 
 
 def build_response(rid):
+    from sdh.curator.actions import get_instance
     response_class = r.hget('requests:{}'.format(rid), 'response_class')
     if response_class is None:
         raise AttributeError('Cannot create a response for {}'.format(rid))
     (module_name, class_name) = tuple(response_class.split('.'))
-    module = importlib.import_module('.' + module_name, 'sdh.curator.actions.ext')
-    class_ = getattr(module, class_name)
-    instance = class_(rid)
-    return instance
+    return get_instance(module_name, class_name, rid)
 
 
 def __deliver_responses():
@@ -53,7 +50,9 @@ def __deliver_responses():
                 response = build_response(rid)
                 if response.sink.state == 'ready':
                     log.debug('Delivery-{} in process...'.format(rid))
-                    reply(response.build(), **response.sink.channel)
+                    message = response.build()
+                    reply(message, **response.sink.channel)
+                    log.debug('Response sent for request number {}'.format(rid))
                     response.sink.state = 'sent'
             except AttributeError, e:
                 log.error(e.message)
