@@ -24,6 +24,8 @@
 
 from rdflib import Graph
 import itertools
+import networkx as nx
+from networkx.algorithms.isomorphism import DiGraphMatcher
 
 __author__ = 'Fernando Serena'
 
@@ -58,3 +60,39 @@ class CGraph(Graph):
             return subs.pop()
 
         return gen_bak
+
+
+class GraphPattern(set):
+    def __init__(self, s=()):
+        super(GraphPattern, self).__init__(s)
+
+    @property
+    def gp(self):
+        return self
+
+    @property
+    def wire(self):
+        g = nx.DiGraph()
+        for tp in self:
+            (s, p, o) = tuple(tp.split(' '))
+            g.add_nodes_from([s, p, o])
+            g.add_edge(s, o, link=p)
+            if not o.startswith('?'):
+                g.add_node(o, literal=True)
+
+        return g
+
+    def __eq__(self, other):
+        my_wire = self.wire
+        others_wire = other.wire
+
+        def __node_match(n1, n2):
+            return n1 == n2
+
+        def __edge_match(e1, e2):
+            return e1 == e2
+
+        matcher = DiGraphMatcher(my_wire, others_wire, node_match=__node_match, edge_match=__edge_match)
+        return matcher.is_isomorphic()
+
+
