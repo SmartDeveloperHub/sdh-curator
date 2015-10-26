@@ -201,7 +201,7 @@ class EnrichmentResponse(FragmentResponse):
         graph.add((resp_node, CURATOR.additionTarget, addition_node))
         graph.add((addition_node, RDF.type, CURATOR.Variable))
         for link, v in self.sink.target_links:
-            triples = self.graph.triples((self.sink.target_resource, link, None))
-            for (_, _, o) in triples:
+            trs = self.graph.triples((self.sink.target_resource, link, None))
+            for (_, _, o) in trs:
                 graph.add((addition_node, link, o))
         return graph.serialize(format='turtle')
