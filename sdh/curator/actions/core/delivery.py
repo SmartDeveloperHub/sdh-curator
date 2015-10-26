@@ -139,7 +139,8 @@ class DeliveryAction(Action):
     def __reply_accepted(self):
         graph = self.__get_accept_graph(self.request.message_id)
         reply(graph.serialize(format='turtle'), **self.request.channel)
-        self.sink.state = 'accepted'
+        if self.sink.state != 'ready':
+            self.sink.state = 'accepted'
 
     def submit(self):
         super(DeliveryAction, self).submit()
@@ -161,16 +162,14 @@ class DeliverySink(Sink):
         channel_b64 = base64.b64encode('|'.join(action.request.channel.values()))
         self._pipe.hmset('channels:{}'.format(channel_b64), action.request.channel)
         self._pipe.hmset('brokers:{}'.format(broker_b64), action.request.broker)
-        self._pipe.set('{}:channel'.format(self._request_key), channel_b64)
-        self._pipe.set('{}:broker'.format(self._request_key), broker_b64)
+        self._pipe.hset('{}'.format(self._request_key), 'channel', channel_b64)
+        self._pipe.hset('{}'.format(self._request_key), 'broker', broker_b64)
 
     @abstractmethod
     def _load(self):
         super(DeliverySink, self)._load()
-        channel_b64 = r.get('{}:channel'.format(self._request_key))
-        broker_b64 = self._dict_fields['broker'] = r.get('{}:broker'.format(self._request_key))
-        self._dict_fields['channel'] = r.hgetall('channels:{}'.format(channel_b64))
-        self._dict_fields['broker'] = r.hgetall('brokers:{}'.format(broker_b64))
+        self._dict_fields['channel'] = r.hgetall('channels:{}'.format(self._dict_fields['channel']))
+        self._dict_fields['broker'] = r.hgetall('brokers:{}'.format(self._dict_fields['broker']))
         try:
             del self._dict_fields['state']
         except KeyError:
@@ -181,6 +180,7 @@ class DeliverySink(Sink):
         super(DeliverySink, self)._remove(pipe)
         pipe.delete('deliveries:{}'.format(self._request_id))
         pipe.srem('deliveries', self._request_id)
+        pipe.srem('deliveries:ready', self._request_id)
         # TODO: Delete channel if it is unique
 
     @property
