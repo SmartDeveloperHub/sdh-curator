@@ -147,6 +147,10 @@ class Sink(object):
                                              'response_class': _fullname(action.response_class)(),
                                              'id': action.id})
 
+    @property
+    def request_id(self):
+        return self._request_id
+
 
 class Request(object):
     def __init__(self):

@@ -22,10 +22,12 @@
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
 
-__author__ = 'Fernando Serena'
-
 from rdflib.namespace import Namespace, RDF, FOAF, XSD
+
+
+__author__ = 'Fernando Serena'
 
 CURATOR = Namespace('http://www.smartdeveloperhub.org/vocabulary/curator#')
 AMQP = Namespace('http://www.smartdeveloperhub.org/vocabulary/amqp#')
 TYPES = Namespace('http://www.smartdeveloperhub.org/vocabulary/types#')
+
