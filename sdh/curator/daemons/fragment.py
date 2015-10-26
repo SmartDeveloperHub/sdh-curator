@@ -86,7 +86,7 @@ def __consume_quad(quad, graph, sinks):
         invalid_sinks = list(__sink_consume())
         for _ in invalid_sinks:
             del sinks[_]
-        triples.add(quad[1:])   # Don't add context
+        triples.add(quad[1:])  # Don't add context
 
 
 def __notify_completion(sinks):
@@ -117,14 +117,22 @@ def __pull_fragment(fid):
         __consume_quad(quad, graph, r_sinks)
         if r.scard('fragments:{}:requests'.format(fid)) != len(requests):
             requests, r_sinks = __load_fragment_requests()
+    with r.pipeline(transaction=True) as p:
+        p.multi()
+        state_key = 'fragments:{}:sync'.format(fid)
+        p.set(state_key, True)
+        p.expire(state_key, 5)
+        p.execute()
     __notify_completion(r_sinks)
 
 
 def __collect_fragments():
     log.info('Collector thread started')
     while True:
-        map(lambda fid: __pull_fragment(fid), r.smembers('fragments'))
+        map(lambda fid: __pull_fragment(fid), filter(lambda x: r.get('fragments:{}:sync'.format(x)) is None,
+                                                     r.smembers('fragments')))
         time.sleep(1)
+
 
 th = Thread(target=__collect_fragments)
 th.daemon = True
