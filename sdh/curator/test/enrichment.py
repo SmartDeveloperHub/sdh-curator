@@ -51,26 +51,35 @@ connection = pika.BlockingConnection(pika.ConnectionParameters(
     host='localhost'))
 channel = connection.channel()
 
-routing_key = 'request.enrichment'
+routing_key = ''
+exchange = ''
 
 graph = Graph()
 script_dir = os.path.dirname(__file__)
 with open(os.path.join(script_dir, 'enrichment.ttl')) as f:
     graph.parse(file=f, format='turtle')
 
+
 req_node = list(graph.subjects(RDF.type, CURATOR.EnrichmentRequest)).pop()
 message_id = Literal(str(uuid.uuid4()), datatype=TYPES.UUID)
 graph.set((req_node, CURATOR.messageId, message_id))
 graph.set((req_node, CURATOR.submittedOn, Literal(datetime.now())))
 
+ch_node = list(graph.subjects(RDF.type, CURATOR.DeliveryChannel)).pop()
+
+result = channel.queue_declare(auto_delete=True)
+queue_name = result.method.queue
+# channel.queue_bind(exchange=exchange, queue=queue_name, routing_key=routing_key)
+channel.basic_consume(callback, queue=queue_name, no_ack=True)
+
+graph.set((ch_node, AMQP.queueName, Literal(queue_name)))
+graph.set((ch_node, AMQP.routingKey, Literal(routing_key)))
+graph.set((ch_node, AMQP.exchangeName, Literal(exchange)))
 message = graph.serialize(format='turtle')
 
-channel.basic_publish(exchange='curator',
-                      routing_key=routing_key,
-                      body=message)
 
-channel.queue_declare(queue='builds' or '', durable=True)
-channel.queue_bind(exchange='curator', queue='builds', routing_key='response.#')
-channel.basic_consume(callback, queue='builds', no_ack=True)
+channel.basic_publish(exchange='curator',
+                      routing_key='request.enrichment',
+                      body=message)
 
 channel.start_consuming()
