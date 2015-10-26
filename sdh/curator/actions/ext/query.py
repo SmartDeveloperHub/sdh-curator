@@ -40,7 +40,12 @@ log = logging.getLogger('sdh.curator.actions.query')
 
 
 class QueryPlugin(FragmentPlugin):
+    @property
+    def sink_class(self):
+        return QuerySink
+
     def consume(self, sink, (c, s, p, o), graph):
+        log.debug('[{}] Streaming fragment triple...'.format(sink.request_id))
         reply(u'{} {} {} .'.format(s.n3(), p.n3(graph.namespace_manager), o.n3(graph.namespace_manager)),
               **sink.channel)
 

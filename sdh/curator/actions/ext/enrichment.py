@@ -38,6 +38,10 @@ log = logging.getLogger('sdh.curator.actions.enrichment')
 
 
 class EnrichmentPlugin(FragmentPlugin):
+    @property
+    def sink_class(self):
+        return EnrichmentSink
+
     def consume(self, sink, (c, s, p, o), graph):
         target = sink.target_resource
         links = dict(map(lambda (l, v): (v, l), sink.target_links))

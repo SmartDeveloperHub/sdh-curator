@@ -21,13 +21,14 @@
   limitations under the License.
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
-from abc import ABCMeta, abstractmethod
-
 from threading import Thread
 import logging
 import time
 
-from agora.client.agora import Agora, AGORA, RDF
+from abc import abstractmethod, abstractproperty
+from concurrent.futures import wait, ALL_COMPLETED
+from concurrent.futures.thread import ThreadPoolExecutor
+from agora.client.agora import Agora, AGORA
 from sdh.curator.server import app
 from sdh.curator.store import r
 from sdh.curator.store.triples import graph as triples
@@ -49,6 +50,10 @@ class FragmentPlugin(object):
 
     @abstractmethod
     def complete(self, sink):
+        pass
+
+    @abstractproperty
+    def sink_class(self):
         pass
 
     @classmethod
@@ -73,7 +78,7 @@ def __bind_prefixes(source_graph):
 
 def __consume_quad(quad, graph, sinks):
     def __sink_consume():
-        for rid in sinks:
+        for rid in filter(lambda _: isinstance(sinks[_], plugin.sink_class), sinks):
             sink = sinks[rid]
             try:
                 plugin.consume(sink, quad, graph)
@@ -127,9 +132,19 @@ def __pull_fragment(fid):
 
 def __collect_fragments():
     log.info('Collector thread started')
+
     while True:
-        map(lambda fid: __pull_fragment(fid), filter(lambda x: r.get('fragments:{}:sync'.format(x)) is None,
-                                                     r.smembers('fragments')))
+        futures = []
+        with ThreadPoolExecutor(8) as thp:
+            for fid in filter(lambda x: r.get('fragments:{}:sync'.format(x)) is None,
+                              r.smembers('fragments')):
+                if fid in futures:
+                    if futures[fid].done():
+                        del futures[fid]
+                else:
+                    futures[fid] = thp.submit(__pull_fragment, fid)
+            # wait(futures, timeout=None, return_when=ALL_COMPLETED)
+            thp.shutdown()
         time.sleep(1)
 
 

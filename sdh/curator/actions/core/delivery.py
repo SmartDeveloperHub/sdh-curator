@@ -138,6 +138,7 @@ class DeliveryAction(Action):
 
     def __reply_accepted(self):
         graph = self.__get_accept_graph(self.request.message_id)
+        log.debug('Notifying acceptance of request number {}'.format(self.request_id))
         reply(graph.serialize(format='turtle'), **self.request.channel)
         if self.sink.state != 'ready':
             self.sink.state = 'accepted'
