@@ -33,39 +33,50 @@ __author__ = 'Fernando Serena'
 log = logging.getLogger('sdh.curator.actions')
 
 
-def search_module(file_path, predicate, limit=1):
+def load_module(name):
+    (importer, name, _) = action_modules[name]
+    loader = importer.find_module(name)
+    file_path = loader.get_filename()
     mod_name, file_ext = os.path.splitext(os.path.split(file_path)[-1])
     py_mod = None
-
     if file_ext.lower() == '.py':
         py_mod = imp.load_source(mod_name, file_path)
-
     elif file_ext.lower() == '.pyc':
         py_mod = imp.load_compiled(mod_name, file_path)
+
+    action_modules[name] = py_mod
+
+action_modules = {x[1]: x for x in pkgutil.iter_modules(path=['sdh/curator/actions/ext'])}
+for module_name in action_modules:
+    load_module(module_name)
+
+
+def search_module(module, predicate, limit=1):
+    py_mod = action_modules[module]
 
     if py_mod is not None:
         cand_elms = filter(predicate,
                            inspect.getmembers(py_mod, lambda x: inspect.isclass(x) and not inspect.isabstract(x)))
         if len(cand_elms) > limit:
-            raise ValueError('Too many elements in module {}'.format(mod_name))
+            raise ValueError('Too many elements in module {}'.format(module))
         return cand_elms
 
     return None
 
 
+def get_instance(module, clz, *args):
+    module = action_modules[module]
+    class_ = getattr(module, clz)
+    instance = class_(*args)
+    return instance
+
+
 def execute(*args, **kwargs):
     log.debug('Searching for a compliant "{}" action handler...'.format(args[0]))
-    cand_modules = filter(lambda x: not x[2] and x[1] == args[0],
-                          pkgutil.iter_modules(path=['sdh/curator/actions/ext']))
-    if len(cand_modules) > 1:
-        raise EnvironmentError('Too many modules for action {}'.format(args[0]))
-    elif len(cand_modules) == 0:
-        raise AttributeError('Unknown action: "{}"'.format(args[0]))
+    name = args[0]
 
-    (importer, name, _) = cand_modules.pop()
-    loader = importer.find_module(name)
     try:
-        _, clz = search_module(loader.get_filename(),
+        _, clz = search_module(name,
                                lambda (_, cl): issubclass(cl, Action) and cl != Action).pop()
         data = kwargs.get('data', None)
         log.debug(
