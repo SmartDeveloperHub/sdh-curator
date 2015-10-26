@@ -25,7 +25,7 @@ import logging
 from shortuuid import uuid
 
 from abc import ABCMeta, abstractmethod
-from rdflib import Literal, URIRef, XSD
+from rdflib import Literal, XSD
 from sdh.curator.actions.core.delivery import DeliveryRequest, DeliveryAction, DeliveryResponse, DeliverySink
 from sdh.curator.actions.core.utils import CGraph
 from sdh.curator.actions.core import CURATOR, RDF
@@ -142,6 +142,7 @@ class FragmentSink(DeliverySink):
         self._pipe.sadd('fragments:{}:gp'.format(fgm_id), *self._graph_pattern)
         self._pipe.sadd('fragments:{}:requests'.format(fgm_id), self._request_id)
         self._pipe.hset('{}'.format(self._request_key), 'gp', fgm_id)
+        self._dict_fields['gp'] = r.smembers('fragments:{}:gp'.format(fgm_id))
 
     @abstractmethod
     def _remove(self, pipe):
@@ -153,7 +154,7 @@ class FragmentSink(DeliverySink):
     def _load(self):
         super(FragmentSink, self)._load()
         fgm_id = self._dict_fields['gp']
-        self._dict_fields['gp'] = r.smembers('fragments:{}'.format(fgm_id))
+        self._dict_fields['gp'] = r.smembers('fragments:{}:gp'.format(fgm_id))
 
     @property
     def backed(self):
