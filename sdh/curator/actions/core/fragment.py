@@ -27,7 +27,7 @@ from shortuuid import uuid
 from abc import ABCMeta, abstractmethod
 from rdflib import Literal, XSD
 from sdh.curator.actions.core.delivery import DeliveryRequest, DeliveryAction, DeliveryResponse, DeliverySink
-from sdh.curator.actions.core.utils import CGraph
+from sdh.curator.actions.core.utils import CGraph, GraphPattern
 from sdh.curator.actions.core import CURATOR, RDF
 from sdh.curator.daemons.fragment import agora_client
 from sdh.curator.store import r
@@ -108,7 +108,7 @@ class FragmentSink(DeliverySink):
 
     def __init__(self):
         super(FragmentSink, self).__init__()
-        self._graph_pattern = set([])
+        self._graph_pattern = GraphPattern()
         self._variables_dict = {}
 
     @staticmethod
@@ -133,16 +133,32 @@ class FragmentSink(DeliverySink):
                 p_part = self._n3(action, pr) if pr != RDF.type else 'a'
                 self._graph_pattern.add(u'{} {} {}'.format(self._variables_dict[v], p_part, o_part))
 
+    def __check_gp(self):
+        gp_keys = r.keys('fragments:*:gp')
+        for gpk in gp_keys:
+            stored_gp = GraphPattern(r.smembers(gpk))
+
+            if stored_gp == self._graph_pattern:
+                return gpk.split(':')[1]
+        return None
+
     @abstractmethod
     def _save(self, action):
         super(FragmentSink, self)._save(action)
         self._build_graph_pattern(action)
-        fgm_id = str(uuid())
-        self._pipe.sadd('fragments', fgm_id)
-        self._pipe.sadd('fragments:{}:gp'.format(fgm_id), *self._graph_pattern)
+        fgm_id = self.__check_gp()
+        exists = fgm_id is not None
+        if not exists:
+            fgm_id = str(uuid())
+            self._pipe.sadd('fragments', fgm_id)
+            self._pipe.sadd('fragments:{}:gp'.format(fgm_id), *self._graph_pattern)
+
         self._pipe.sadd('fragments:{}:requests'.format(fgm_id), self._request_id)
         self._pipe.hset('{}'.format(self._request_key), 'gp', fgm_id)
         self._dict_fields['gp'] = r.smembers('fragments:{}:gp'.format(fgm_id))
+
+        if exists and r.get('fragments:{}:sync'.format(fgm_id)) is not None:
+            self.state = 'ready'
 
     @abstractmethod
     def _remove(self, pipe):
@@ -154,7 +170,7 @@ class FragmentSink(DeliverySink):
     def _load(self):
         super(FragmentSink, self)._load()
         fgm_id = self._dict_fields['gp']
-        self._dict_fields['gp'] = r.smembers('fragments:{}:gp'.format(fgm_id))
+        self._dict_fields['gp'] = GraphPattern(r.smembers('fragments:{}:gp'.format(fgm_id)))
 
     @property
     def backed(self):
@@ -198,13 +214,9 @@ class FragmentResponse(DeliveryResponse):
                 return Literal(x.replace('"', ''), datatype=XSD.string).n3(self.graph.namespace_manager)
             return x
 
+        _g = self.sink.gp
+        print _g.wire
         gp = [' '.join([__transform(part) for part in tp.split(' ')]) for tp in self.sink.gp]
         where_gp = ' . '.join(gp)
         query = """CONSTRUCT WHERE { %s }""" % where_gp
         return self.graph.query(query)
-
-
-
-
-
-
