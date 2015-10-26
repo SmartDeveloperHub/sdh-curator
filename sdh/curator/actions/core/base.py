@@ -122,7 +122,7 @@ class Sink(object):
     def remove(self):
         with r.pipeline(transaction=True) as p:
             p.multi()
-            action_id = p.hget(self._request_key, 'id')
+            action_id = r.hget(self._request_key, 'id')
             p.zrem('requests', action_id)
             r_keys = r.keys('{}*'.format(self._request_key))
             for key in r_keys:
