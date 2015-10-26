@@ -94,6 +94,7 @@ class Sink(object):
         self._pipe = r.pipeline(transaction=True)
         self._request_id = None
         self._request_key = None
+        self._dict_fields = {}
 
     def load(self, rid):
         if not r.keys('requests:{}'.format(rid)):
