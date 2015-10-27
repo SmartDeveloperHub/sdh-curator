@@ -40,6 +40,7 @@ log = logging.getLogger('sdh.curator.daemons.fragment')
 agora_host = app.config['AGORA']
 agora_client = Agora(agora_host)
 
+thp = ThreadPoolExecutor(max_workers=8)
 
 class FragmentPlugin(object):
     __plugins = []
@@ -107,7 +108,16 @@ def __notify_completion(sinks):
 def __pull_fragment(fid):
     def __load_fragment_requests():
         requests_ = r.smembers('fragments:{}:requests'.format(fid))
-        sinks_ = {rid: build_response(rid).sink for rid in requests_}
+        sinks_ = {}
+        for rid in requests_:
+            try:
+                sinks_[rid] = build_response(rid).sink
+            except Exception, e:
+                log.warning(e.message)
+                with r.pipeline(transaction=True) as p:
+                    p.multi()
+                    p.srem('fragments:{}:requests'.format(fid), rid)
+                    p.execute()
         return requests_, sinks_
 
     tps = r.smembers('fragments:{}:gp'.format(fid))
@@ -133,18 +143,15 @@ def __pull_fragment(fid):
 def __collect_fragments():
     log.info('Collector thread started')
 
+    futures = {}
     while True:
-        futures = []
-        with ThreadPoolExecutor(8) as thp:
-            for fid in filter(lambda x: r.get('fragments:{}:sync'.format(x)) is None,
-                              r.smembers('fragments')):
-                if fid in futures:
-                    if futures[fid].done():
-                        del futures[fid]
-                else:
-                    futures[fid] = thp.submit(__pull_fragment, fid)
-            # wait(futures, timeout=None, return_when=ALL_COMPLETED)
-            thp.shutdown()
+        for fid in filter(lambda x: r.get('fragments:{}:sync'.format(x)) is None,
+                          r.smembers('fragments')):
+            if fid in futures:
+                if futures[fid].done():
+                    del futures[fid]
+            if fid not in futures:
+                futures[fid] = thp.submit(__pull_fragment, fid)
         time.sleep(1)
 
 
