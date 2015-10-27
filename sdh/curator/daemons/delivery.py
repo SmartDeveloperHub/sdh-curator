@@ -46,6 +46,7 @@ def __deliver_responses():
     log.info('Delivery thread started')
     while True:
         for rid in r.smembers('deliveries:ready'):
+            response = None
             try:
                 response = build_response(rid)
                 if response.sink.state == 'ready':
@@ -56,11 +57,11 @@ def __deliver_responses():
                     response.sink.state = 'sent'
             except AttributeError, e:
                 log.error(e.message)
-                # with r.pipeline(transaction=True) as p:
-                #     p.srem('deliveries:ready', rid)
-                #     p.execute()
-
                 # A response couldn't be created
+            except EnvironmentError, e:
+                log.warning(e.message)
+                if response is not None:
+                    response.sink.remove()
 
         time.sleep(1)
 
