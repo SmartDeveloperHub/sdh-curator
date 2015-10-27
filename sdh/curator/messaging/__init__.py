@@ -46,19 +46,19 @@ def callback(ch, method, properties, body):
         ch.basic_ack(delivery_tag=method.delivery_tag)
 
 
-def __setup_request_queue():
+def __setup_queues():
     connection = pika.BlockingConnection(pika.ConnectionParameters(
         host=RABBIT_CONFIG['host']))
     channel = connection.channel()
     log.debug('Connected to AMQP server')
 
-    channel.exchange_declare(exchange='curator',
+    channel.exchange_declare(exchange='sdh',
                              type='topic', durable=True)
 
+    # Create the requests queue and binding
     queue_name = 'curator_requests'
     channel.queue_declare(queue_name, durable=True)
-    # queue_name = result.method.queue
-    channel.queue_bind(exchange='curator', queue=queue_name, routing_key='request.*.#')
+    channel.queue_bind(exchange='sdh', queue=queue_name, routing_key='curator.request.*.#')
 
     channel.basic_qos(prefetch_count=1)
     channel.basic_consume(callback, queue=queue_name)
@@ -67,6 +67,6 @@ def __setup_request_queue():
     channel.start_consuming()
 
 
-th = Thread(target=__setup_request_queue)
+th = Thread(target=__setup_queues)
 th.daemon = True
 th.start()
