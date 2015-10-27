@@ -135,6 +135,7 @@ class EnrichmentAction(FragmentAction):
 
 class EnrichmentSink(FragmentSink):
     def _remove(self, pipe):
+        pipe.srem('enrichments', self._request_id)
         super(FragmentSink, self)._remove(pipe)
 
     def __init__(self):
