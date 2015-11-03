@@ -22,28 +22,12 @@
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
 
+from rdflib.namespace import Namespace, RDF, FOAF, XSD
+
+
 __author__ = 'Fernando Serena'
 
-import pika
-import sys
-from rdflib import Graph, URIRef
-import os
+CURATOR = Namespace('http://www.smartdeveloperhub.org/vocabulary/curator#')
+AMQP = Namespace('http://www.smartdeveloperhub.org/vocabulary/amqp#')
+TYPES = Namespace('http://www.smartdeveloperhub.org/vocabulary/types#')
 
-connection = pika.BlockingConnection(pika.ConnectionParameters(
-    host='localhost'))
-channel = connection.channel()
-
-routing_key = 'request.enrichment'
-
-graph = Graph()
-script_dir = os.path.dirname(__file__)
-with open(os.path.join(script_dir, 'request_example.ttl')) as f:
-    graph.parse(file=f, format='turtle')
-
-message = graph.serialize(format='turtle')
-
-channel.basic_publish(exchange='curator',
-                      routing_key=routing_key,
-                      body=message)
-print " [x] Sent %r:%r" % (routing_key, message)
-connection.close()

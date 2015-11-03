@@ -23,25 +23,3 @@
 """
 
 __author__ = 'Fernando Serena'
-
-from setuptools import setup, find_packages
-
-setup(
-    name="SDH-Curator",
-    version="0.1.0-alpha2",
-    author="Fernando Serena",
-    author_email="fernando.serena@centeropenmiddleware.com",
-    description="The service responsible for supporting resource enrichment on a Linked Data platform",
-    license="Apache 2",
-    keywords=["linked-data", "ontology", "curation"],
-    url="https://github.com/smartdeveloperhub/sdh-curator",
-    download_url="https://github.com/smartdeveloperhub/sdh-curator/tarball/0.1.0-alpha1",
-    packages=find_packages(exclude=['ez_setup', 'examples', 'tests']),
-    namespace_packages=['sdh', 'sdh.curator'],
-    install_requires=['shortuuid', 'pika', 'flask', 'Flask-Negotiate', 'redis', 'hiredis', 'APScheduler', 'rdflib',
-                      'networkx', 'futures', 'Agora-Client'],
-    classifiers=[],
-    scripts=['curator'],
-    package_dir={'sdh.curator': 'sdh/curator', 'sdh.curator.server': 'sdh/curator/server'},
-    package_data={'sdh.curator.server': ['templates/*.*', 'static/*.*']},
-)

@@ -46,10 +46,13 @@ logger.setLevel(log_level)
 
 from sdh.curator import api
 import sdh.curator.messaging
+from sdh.curator.daemons import delivery
+from sdh.curator.daemons import fragment
+
 
 app.logger.info('Ready')
 
-raw_input('Hit ENTER to exit...')
+# raw_input('Hit ENTER to exit...')
 
-# if __name__ == '__main__':
-#     app.run(host='0.0.0.0', port=app.config['PORT'], debug=True, use_reloader=False)
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=app.config['PORT'], debug=True, use_reloader=False)

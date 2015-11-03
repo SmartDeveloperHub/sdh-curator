@@ -22,27 +22,32 @@
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
 
-import os
-import imp
-import inspect
+import redis
+from redis.exceptions import BusyLoadingError, RedisError
+from sdh.curator.server import app
+import logging
+import sys
 
 __author__ = 'Fernando Serena'
 
+log = logging.getLogger('sdh.curator.actions.store')
+REDIS_CONFIG = app.config['REDIS']
+pool = redis.ConnectionPool(host=REDIS_CONFIG.get('host'), port=REDIS_CONFIG.get('port'), db=REDIS_CONFIG.get('db'))
+r = redis.StrictRedis(connection_pool=pool)
 
-def search_module(file_path, predicate, limit=1):
-    mod_name, file_ext = os.path.splitext(os.path.split(file_path)[-1])
-    py_mod = None
 
-    if file_ext.lower() == '.py':
-        py_mod = imp.load_source(mod_name, file_path)
+# Ping redis to check if it's ready
+requests = 0
+while True:
+    try:
+        r.keys('*')
+        break
+    except BusyLoadingError as re:
+        log.warning(re.message)
+    except RedisError:
+        print 'Redis is not available'
+        sys.exit(-1)
 
-    elif file_ext.lower() == '.pyc':
-        py_mod = imp.load_compiled(mod_name, file_path)
-
-    if py_mod is not None:
-        cand_elms = filter(predicate, inspect.getmembers(py_mod, inspect.isclass))
-        if len(cand_elms) > limit:
-            raise ValueError('Too many elements in module {}'.format(mod_name))
-        return cand_elms
-
-    return None
+store_mode = app.config['STORE']
+if 'memory' in store_mode:
+    r.flushdb()

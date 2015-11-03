@@ -1,0 +1,53 @@
+##-- DECLARATION -------------------------------------------------------------##
+
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+@prefix curator: <http://www.smartdeveloperhub.org/vocabulary/curator#> .
+@prefix amqp:    <http://www.smartdeveloperhub.org/vocabulary/amqp#> .
+@prefix types:   <http://www.smartdeveloperhub.org/vocabulary/types#> .
+
+@prefix ci:      <http://www.smartdeveloperhub.org/vocabulary/ci#> .
+@prefix scm:     <http://www.smartdeveloperhub.org/vocabulary/scm#> .
+
+@prefix doap:    <http://usefulinc.com/ns/doap#> .
+@prefix foaf:    <http://xmlns.com/foaf/0.1/> .
+@prefix oslc_auto: <http://open-services.net/ns/auto#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+
+##-- EXAMPLE ENRICHMENT REQUEST ----------------------------------------------##
+
+<#request> a curator:EnrichmentRequest ;
+  curator:messageId "00000000-0000-0000-0000-000000000002"^^types:UUID ;
+  curator:submittedBy <#connector> ;
+  curator:submittedOn "2015-09-29T09:30:10+01:00"^^xsd:dateTime ;
+  curator:replyTo <#deliveryChannel> ;
+  curator:targetResource <http://localhost:9001/ci/builds/3/> .
+
+<#connector> a foaf:Agent ;
+  curator:agentId "00000000-0000-0000-0001-000000000001"^^types:UUID .
+
+<#deliveryChannel> a curator:DeliveryChannel ;
+  amqp:broker <#broker> ;
+  amqp:exchangeName ""^^types:Name ;
+  amqp:queueName ""^^types:Name ;
+  amqp:routingKey ""^^types:Name .
+
+<#broker> a amqp:Broker ;
+  amqp:host "127.0.0.1"^^types:Hostname ;
+  amqp:port "41980"^^types:Port ;
+  amqp:virtualHost "/sdh/curator/"^^types:Path .
+
+<http://localhost:9001/ci/builds/3/>
+  ci:forBranch  _:branch .
+
+_:repository a curator:Variable ;
+  scm:hasBranch  _:branch ;
+  a scm:Repository ;
+  doap:name   "maven-hpi-plugin"^^xsd:string .
+
+_:branch a curator:Variable ;
+  a scm:Branch ;
+  doap:name      "master"^^xsd:string .

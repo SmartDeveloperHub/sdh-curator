@@ -28,4 +28,6 @@ __author__ = 'Fernando Serena'
 
 
 class DisconnectAction(Action):
-    pass
+    @property
+    def request(self):
+        return None

@@ -22,28 +22,24 @@
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
 
-from sdh.curator.actions import Action
+from rdflib import ConjunctiveGraph
+from sdh.curator.server import app
 import logging
-from rdflib import RDF
-from rdflib.namespace import Namespace
 
 __author__ = 'Fernando Serena'
 
-log = logging.getLogger('sdh.curator.actions.enrichment')
-CURATOR = Namespace('http://www.smartdeveloperhub.org/vocabulary/curator#')
+log = logging.getLogger('sdh.curator.store.triples')
+
+store_mode = app.config['STORE']
+if 'persist' in store_mode:
+    log.info('Loading known triples...')
+    graph = ConjunctiveGraph('Sleepycat')
+    graph.open('graph_store', create=True)
+else:
+    graph = ConjunctiveGraph()
 
 
-class EnrichmentAction(Action):
-    def run(self):
-        log.info('Received a potential enrichment request')
-        request_nodes = list(self._request_graph.subjects(RDF.type, CURATOR.EnrichmentRequest))
-        if not (0 < len(request_nodes) < 2):
-            raise SyntaxError('There is no enrichment request specified in the message')
+graph.store.graph_aware = False
+# log.debug('\n{}'.format(graph.serialize(format='turtle')))
+log.info('Ready')
 
-        request_node = request_nodes.pop()
-        target_resource_nodes = list(self._request_graph.objects(request_node, CURATOR.targetResource))
-        if not (0 < len(target_resource_nodes) < 2):
-            raise SyntaxError('Invalid number of target resources: {}'.format(len(target_resource_nodes)))
-
-        target_resource = target_resource_nodes.pop()
-        log.debug('Found a request to enrich {}!'.format(target_resource))

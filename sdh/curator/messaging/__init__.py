@@ -26,46 +26,47 @@ import pika
 from threading import Thread
 import logging
 from sdh.curator.actions import execute
-import time
+from sdh.curator.server import app
 
 __author__ = 'Fernando Serena'
 
 log = logging.getLogger('sdh.curator.messaging')
+RABBIT_CONFIG = app.config['RABBIT']
 
 
 def callback(ch, method, properties, body):
     action_args = method.routing_key.split('.')[1:]
-    log.debug('Trying to execute an incoming action request for "{}"'.format(action_args[0]))
+    log.debug('Incoming request for "{}"!'.format(action_args[0]))
     try:
         execute(*action_args, data=body)
-    except (EnvironmentError, AttributeError) as e:
+    except (EnvironmentError, AttributeError, ValueError) as e:
         log.error(e.message)
         ch.basic_reject(delivery_tag=method.delivery_tag, requeue=False)
     else:
         ch.basic_ack(delivery_tag=method.delivery_tag)
 
 
-def __setup_request_queue():
+def __setup_queues():
     connection = pika.BlockingConnection(pika.ConnectionParameters(
-        host='localhost'))
+        host=RABBIT_CONFIG['host']))
     channel = connection.channel()
     log.debug('Connected to AMQP server')
 
-    channel.exchange_declare(exchange='curator',
+    channel.exchange_declare(exchange='sdh',
                              type='topic', durable=True)
 
+    # Create the requests queue and binding
     queue_name = 'curator_requests'
     channel.queue_declare(queue_name, durable=True)
-    # queue_name = result.method.queue
-    channel.queue_bind(exchange='curator', queue=queue_name, routing_key='request.*.#')
+    channel.queue_bind(exchange='sdh', queue=queue_name, routing_key='curator.request.*.#')
 
     channel.basic_qos(prefetch_count=1)
     channel.basic_consume(callback, queue=queue_name)
 
-    log.info('Listening requests from queue {}'.format(queue_name))
+    log.info('Waiting for curation requests')
     channel.start_consuming()
 
 
-th = Thread(target=__setup_request_queue)
+th = Thread(target=__setup_queues)
 th.daemon = True
 th.start()
