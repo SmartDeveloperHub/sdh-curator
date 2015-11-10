@@ -21,18 +21,20 @@
   limitations under the License.
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
+import calendar
 from threading import Thread
 import logging
 import time
 
 from abc import abstractmethod, abstractproperty
-from concurrent.futures import wait, ALL_COMPLETED
+from datetime import datetime as dt
 from concurrent.futures.thread import ThreadPoolExecutor
 from agora.client.agora import Agora, AGORA
 from sdh.curator.server import app
 from sdh.curator.store import r
-from sdh.curator.store.triples import graph as triples
+from sdh.curator.store.triples import cache as cache, front, add_stream_triple, load_stream_triples
 from sdh.curator.daemons.delivery import build_response
+from redis.lock import Lock
 
 __author__ = 'Fernando Serena'
 
@@ -40,17 +42,18 @@ log = logging.getLogger('sdh.curator.daemons.fragment')
 agora_host = app.config['AGORA']
 agora_client = Agora(agora_host)
 
-thp = ThreadPoolExecutor(max_workers=8)
+thp = ThreadPoolExecutor(max_workers=4)
+
 
 class FragmentPlugin(object):
     __plugins = []
 
     @abstractmethod
-    def consume(self, sink, quad, graph):
+    def consume(self, fid, quad, graph, *args):
         pass
 
     @abstractmethod
-    def complete(self, sink):
+    def complete(self, fid, *args):
         pass
 
     @abstractproperty
@@ -74,33 +77,46 @@ def __on_load_seed(s, _):
 
 
 def __bind_prefixes(source_graph):
-    map(lambda (prefix, uri): triples.bind(prefix, uri), source_graph.namespaces())
+    map(lambda (prefix, uri): (cache.bind(prefix, uri), front.bind(prefix, uri)), source_graph.namespaces())
 
 
-def __consume_quad(quad, graph, sinks):
+def __consume_quad(fid, (c, s, p, o), graph, sinks=None):
     def __sink_consume():
         for rid in filter(lambda _: isinstance(sinks[_], plugin.sink_class), sinks):
             sink = sinks[rid]
             try:
-                plugin.consume(sink, quad, graph)
+                plugin.consume(fid, (c, s, p, o), graph, sink)
             except Exception as e:
                 sink.remove()
                 yield rid
                 log.warning(e.message)
 
+    def __generic_consume():
+        try:
+            plugin.consume(fid, (c, s, p, o), graph)
+        except Exception as e:
+            log.warning(e.message)
+
     for plugin in FragmentPlugin.plugins():
-        invalid_sinks = list(__sink_consume())
-        for _ in invalid_sinks:
-            del sinks[_]
-        triples.add(quad[1:])  # Don't add context
+        if plugin.sink_class is not None:
+            invalid_sinks = list(__sink_consume())
+            for _ in invalid_sinks:
+                del sinks[_]
+        else:
+            __generic_consume()
 
 
-def __notify_completion(sinks):
+def __notify_completion(fid, sinks):
     for plugin in FragmentPlugin.plugins():
         try:
-            for sink in sinks.values():
-                sink.state = 'ready'
-                plugin.complete(sink)
+            if plugin.sink_class is not None:
+                for rid in filter(lambda _: isinstance(sinks[_], plugin.sink_class), sinks):
+                    sink = sinks[rid]
+                    if sink.delivery == 'accepted':
+                        sink.delivery = 'ready'
+                    plugin.complete(fid, sink)
+            else:
+                plugin.complete(fid)
         except Exception as e:
             log.warning(e.message)
 
@@ -127,17 +143,43 @@ def __pull_fragment(fid):
                                                             on_load=__on_load_seed)
     __bind_prefixes(graph)
 
-    for quad in fgm_gen:
-        __consume_quad(quad, graph, r_sinks)
-        if r.scard('fragments:{}:requests'.format(fid)) != len(requests):
-            requests, r_sinks = __load_fragment_requests()
+    lock_key = 'fragments:{}:lock'.format(fid)
+    lock = r.lock(lock_key, lock_class=Lock)
+    lock.acquire()
+    cache.remove_context(cache.get_context(fid))
+    with r.pipeline() as pipe:
+        pipe.delete('fragments:{}:stream'.format(fid))
+        pipe.execute()
+    fragment_triples = load_stream_triples(fid, calendar.timegm(dt.now().timetuple()))
+    for ft in fragment_triples:
+        cache.get_context(fid).add(ft)
     with r.pipeline(transaction=True) as p:
         p.multi()
-        state_key = 'fragments:{}:sync'.format(fid)
-        p.set(state_key, True)
-        p.expire(state_key, 10)
+        p.set('fragments:{}:pulling'.format(fid), True)
         p.execute()
-    __notify_completion(r_sinks)
+    lock.release()
+
+    for (c, s, p, o) in fgm_gen:
+        if (s, p, o) not in cache:
+            cache.get_context(fid).add((s, p, o))
+            lock.acquire()
+            add_stream_triple(fid, (s, p, o))
+            __consume_quad(fid, (c, s, p, o), graph, sinks=r_sinks)
+            lock.release()
+        if r.scard('fragments:{}:requests'.format(fid)) != len(requests):
+            requests, r_sinks = __load_fragment_requests()
+
+    lock.acquire()
+    with r.pipeline(transaction=True) as p:
+        p.multi()
+        sync_key = 'fragments:{}:sync'.format(fid)
+        p.set(sync_key, True)
+        p.set('fragments:{}:updated'.format(fid), dt.now())
+        p.delete('fragments:{}:pulling'.format(fid))
+        p.expire(sync_key, 10)
+        p.execute()
+    __notify_completion(fid, r_sinks)
+    lock.release()
 
 
 def __collect_fragments():

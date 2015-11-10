@@ -38,32 +38,40 @@ __author__ = 'Fernando Serena'
 
 log = logging.getLogger('sdh.curator.actions.query')
 
-
 class QueryPlugin(FragmentPlugin):
     @property
     def sink_class(self):
         return QuerySink
 
-    def consume(self, sink, (c, s, p, o), graph):
-        log.debug('[{}] Streaming fragment triple...'.format(sink.request_id))
-        reply(u'{} {} {} .'.format(s.n3(), p.n3(graph.namespace_manager), o.n3(graph.namespace_manager)),
-              **sink.channel)
+    def consume(self, fid, (c, s, p, o), graph, *args):
+        pass
 
-    def complete(self, sink):
+    def complete(self, fid, *args):
         pass
 
 
 FragmentPlugin.register(QueryPlugin)
 
-
 class QueryRequest(FragmentRequest):
     def __init__(self):
         super(QueryRequest, self).__init__()
-        self._target_resource = None
-        self._target_links = set([])
 
     def _extract_content(self):
         super(QueryRequest, self)._extract_content()
+
+        q_res = self._graph.query("""SELECT ?node WHERE {
+                                        ?node a curator:QueryRequest .
+                                    }""")
+
+        q_res = list(q_res)
+        if len(q_res) != 1:
+            raise SyntaxError('Invalid query request')
+
+        request_fields = q_res.pop()
+        if not all(request_fields):
+            raise ValueError('Missing fields for query request')
+        if request_fields[0] != self._request_node:
+            raise SyntaxError('Request node does not match')
 
 
 class QueryAction(FragmentAction):
@@ -113,7 +121,7 @@ class QueryResponse(FragmentResponse):
         return self.__sink
 
     def build(self):
-        fragment = self.fragment
+        fragment, _ = self.fragment()
         graph = CGraph()
         log.debug('Building a query result for request number {}'.format(self._request_id))
         for t in fragment:
@@ -127,4 +135,4 @@ class QueryResponse(FragmentResponse):
         graph.add((resp_node, CURATOR.submittedBy, curator_node))
         graph.add((curator_node, RDF.type, FOAF.Agent))
         graph.add((curator_node, FOAF.agentId, CURATOR_UUID))
-        return graph.serialize(format='turtle')
+        yield graph.serialize(format='turtle'), {}

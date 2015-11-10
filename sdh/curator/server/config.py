@@ -46,7 +46,7 @@ class DevelopmentConfig(Config):
         'db': 4,
         'port': 6379
     }
-    STORE = 'persist'
+    STORE = 'memory'
     AGORA = 'http://localhost:9001'
 
 

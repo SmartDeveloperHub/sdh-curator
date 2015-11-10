@@ -109,7 +109,12 @@ class Sink(object):
 
     def __getattr__(self, item):
         if item in self._dict_fields:
-            return self._dict_fields[item]
+            value = self._dict_fields[item]
+            if value == 'True':
+                return True
+            elif value == 'False':
+                return False
+            return value
         return super(Sink, self).__getattribute__(item)
 
     def save(self, action):

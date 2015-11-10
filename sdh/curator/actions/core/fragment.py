@@ -21,21 +21,24 @@
   limitations under the License.
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
+import calendar
 import logging
 from shortuuid import uuid
 
 from abc import ABCMeta, abstractmethod
-from rdflib import Literal, XSD
+from rdflib import Literal, XSD, URIRef
 from sdh.curator.actions.core.delivery import DeliveryRequest, DeliveryAction, DeliveryResponse, DeliverySink
-from sdh.curator.actions.core.utils import CGraph, GraphPattern
+from sdh.curator.actions.core.utils import CGraph, GraphPattern, parse_bool
 from sdh.curator.actions.core import CURATOR, RDF
 from sdh.curator.daemons.fragment import agora_client
 from sdh.curator.store import r
-from sdh.curator.store.triples import graph as triples
+from sdh.curator.store.triples import cache, front, load_stream_triples
+from datetime import datetime as dt
 
 __author__ = 'Fernando Serena'
 
 log = logging.getLogger('sdh.curator.actions.fragment')
+fragment_locks = {}
 
 
 class FragmentRequest(DeliveryRequest):
@@ -110,6 +113,7 @@ class FragmentSink(DeliverySink):
         super(FragmentSink, self).__init__()
         self._graph_pattern = GraphPattern()
         self._variables_dict = {}
+        self._fragment_id = None
 
     @staticmethod
     def _n3(action, elm):
@@ -138,55 +142,66 @@ class FragmentSink(DeliverySink):
         for gpk in gp_keys:
             stored_gp = GraphPattern(r.smembers(gpk))
 
-            if stored_gp == self._graph_pattern:
-                return gpk.split(':')[1]
+            mapping = stored_gp.mapping(self._graph_pattern)
+            if mapping:
+                return gpk.split(':')[1], mapping
         return None
 
     @abstractmethod
     def _save(self, action):
         super(FragmentSink, self)._save(action)
         self._build_graph_pattern(action)
-        fgm_id = self.__check_gp()
-        exists = fgm_id is not None
+        fragment_mapping = self.__check_gp()
+        exists = fragment_mapping is not None
         if not exists:
-            fgm_id = str(uuid())
-            self._pipe.sadd('fragments', fgm_id)
-            self._pipe.sadd('fragments:{}:gp'.format(fgm_id), *self._graph_pattern)
+            self._fragment_id = str(uuid())
+            self._pipe.sadd('fragments', self._fragment_id)
+            self._pipe.sadd('fragments:{}:gp'.format(self._fragment_id), *self._graph_pattern)
+        else:
+            self._fragment_id, mapping = fragment_mapping
+            self._pipe.hset(self._request_key, 'mapping', mapping)
 
-        self._pipe.sadd('fragments:{}:requests'.format(fgm_id), self._request_id)
-        self._pipe.hset('{}'.format(self._request_key), 'gp', fgm_id)
-        self._dict_fields['gp'] = r.smembers('fragments:{}:gp'.format(fgm_id))
+        self._pipe.sadd('fragments:{}:requests'.format(self._fragment_id), self._request_id)
+        self._pipe.hset('{}'.format(self._request_key), 'gp', self._fragment_id)
+        self._dict_fields['gp'] = r.smembers('fragments:{}:gp'.format(self._fragment_id))
 
-        if exists and r.get('fragments:{}:sync'.format(fgm_id)) is not None:
-            self.state = 'ready'
+        if exists and self.backed:
+            self.delivery = 'ready'
 
     @abstractmethod
     def _remove(self, pipe):
-        fgm_id = r.hget('{}'.format(self._request_key), 'gp')
-        pipe.srem('fragments:{}:requests'.format(fgm_id), self._request_id)
+        self._fragment_id = r.hget('{}'.format(self._request_key), 'gp')
+        pipe.srem('fragments:{}:requests'.format(self._fragment_id), self._request_id)
         super(FragmentSink, self)._remove(pipe)
 
     @abstractmethod
     def _load(self):
         super(FragmentSink, self)._load()
-        fgm_id = self._dict_fields['gp']
-        self._dict_fields['gp'] = GraphPattern(r.smembers('fragments:{}:gp'.format(fgm_id)))
+        self._fragment_id = self._dict_fields['gp']
+        self._dict_fields['gp'] = GraphPattern(r.smembers('fragments:{}:gp'.format(self._fragment_id)))
+        mapping = self._dict_fields.get('mapping', None)
+        if mapping is not None:
+            mapping = eval(mapping)
+        self._dict_fields['mapping'] = mapping
+        try:
+            del self._dict_fields['backed']
+            del self._
+        except KeyError:
+            pass
 
     @property
     def backed(self):
-        return not r.sismember('fragments', self._request_id)
+        return r.get('fragments:{}:updated'.format(self._fragment_id)) is not None and r.get(
+            'fragments:{}:pulling'.format(self._fragment_id)) is None
 
-    @backed.setter
-    def backed(self, value):
-        def __pipe_set_func(f):
-            with r.pipeline(transaction=True) as p:
-                p.multi()
-                p.__getattribute__(f)('fragments', self._request_id)
-                p.execute()
-        if value:
-            __pipe_set_func('srem')
-        else:
-            __pipe_set_func('sadd')
+    @property
+    def fragment_id(self):
+        return self._fragment_id
+
+    def map(self, v):
+        if self.mapping is not None:
+            return self.mapping[v]
+        return v
 
 
 class FragmentResponse(DeliveryResponse):
@@ -201,22 +216,34 @@ class FragmentResponse(DeliveryResponse):
 
     @staticmethod
     def query(query_object):
-        return triples.query(query_object)
+        return cache.query(query_object)
 
-    @property
-    def graph(self):
-        return triples
+    @staticmethod
+    def graph(stream=False):
+        if not stream:
+            return cache
+        return front
 
-    @property
-    def fragment(self):
+    def fragment(self, stream=False, timestamp=None):
         def __transform(x):
             if x.startswith('"'):
-                return Literal(x.replace('"', ''), datatype=XSD.string).n3(self.graph.namespace_manager)
+                return Literal(x.replace('"', ''), datatype=XSD.string).n3(self.graph(stream).namespace_manager)
             return x
+
+        if timestamp is None:
+            timestamp = calendar.timegm(dt.now().timetuple())
+
+        if stream and self.sink.backed:
+            stream = False
+
+        if stream:
+            triples = load_stream_triples(self.sink.fragment_id, timestamp)
+            return triples, stream
 
         _g = self.sink.gp
         print _g.wire
         gp = [' '.join([__transform(part) for part in tp.split(' ')]) for tp in self.sink.gp]
         where_gp = ' . '.join(gp)
         query = """CONSTRUCT WHERE { %s }""" % where_gp
-        return self.graph.query(query)
+        result = self.graph(stream).query(query)
+        return list(result), stream

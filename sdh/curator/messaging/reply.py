@@ -26,37 +26,39 @@ import logging
 
 import pika
 from pika.exceptions import ChannelClosed
+from pika.spec import BasicProperties
 
 __author__ = 'Fernando Serena'
 
 log = logging.getLogger('sdh.curator.messaging.reply')
 
 
-def reply(message, exchange=None, routing_key=None, queue=None, mandatory=False):
+def reply(message, exchange=None, routing_key=None, headers=None):
     connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
     try:
         channel = connection.channel()
-        if not any([exchange, routing_key, queue]):
+        if not any([exchange, routing_key]):
             raise AttributeError('Insufficient delivery channel parameters')
 
         exchange = '' if exchange is None else exchange
         routing_key = '' if routing_key is None else routing_key
-        if not exchange and not routing_key:
-            routing_key = queue
-            mandatory = True
-            channel.confirm_delivery()
+        # if not exchange and not routing_key:
+        #     routing_key = queue
+        # mandatory = True
+        channel.confirm_delivery()
 
         sent = channel.basic_publish(exchange=exchange,
                                      routing_key=routing_key,
                                      body=message,
-                                     mandatory=mandatory)
+                                     properties=BasicProperties(headers=headers or {}),
+                                     mandatory=True)
 
-        if mandatory and not sent:
-            raise EnvironmentError('The queue {} does not exist'.format(queue))
+        if not sent:
+            raise EnvironmentError('The channel {} does not exist'.format(routing_key))
         log.debug('Sent message to delivery channel: \n -exchange: {}\n -routing_key: {}'.format(
             exchange, routing_key
         ))
     except ChannelClosed:
-        raise EnvironmentError('The queue {} does not exist'.format(queue))
+        raise EnvironmentError('The queue {} does not exist'.format(routing_key))
     finally:
         connection.close()

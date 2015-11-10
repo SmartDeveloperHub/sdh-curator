@@ -22,24 +22,56 @@
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
 
-from rdflib import ConjunctiveGraph
+from rdflib import ConjunctiveGraph, URIRef, Literal
 from sdh.curator.server import app
 import logging
+import calendar
+from datetime import datetime as dt
+from sdh.curator.store import r
+import os
 
 __author__ = 'Fernando Serena'
 
 log = logging.getLogger('sdh.curator.store.triples')
 
+
+def load_stream_triples(fid, until):
+    def __triplify(x):
+        def __term(elm):
+            if elm.startswith('<'):
+                return URIRef(elm.lstrip('<').rstrip('>'))
+            else:
+                (value, ty) = tuple(elm.split('^^'))
+                return Literal(value.replace('"', ''), datatype=URIRef(ty.lstrip('<').rstrip('>')))
+
+        s, p, o = eval(x)
+        return __term(s), __term(p), __term(o)
+
+    for x in r.zrangebyscore('fragments:{}:stream'.format(fid), '-inf', '{}'.format(float(until))):
+        yield __triplify(x)
+
+
+def add_stream_triple(fid, (s, p, o), timestamp=None):
+    if timestamp is None:
+        timestamp = calendar.timegm(dt.utcnow().timetuple())
+    with r.pipeline() as pipe:
+        pipe.zadd('fragments:{}:stream'.format(fid), timestamp, (s.n3(), p.n3(), o.n3()))
+        pipe.execute()
+
+
 store_mode = app.config['STORE']
 if 'persist' in store_mode:
+    if not os.path.exists('store'):
+        os.makedirs('store')
     log.info('Loading known triples...')
-    graph = ConjunctiveGraph('Sleepycat')
-    graph.open('graph_store', create=True)
+    cache = ConjunctiveGraph('Sleepycat')
+    front = ConjunctiveGraph('Sleepycat')
+    cache.open('store/cache', create=True)
+    front.open('store/front', create=True)
 else:
-    graph = ConjunctiveGraph()
+    cache = ConjunctiveGraph()
+    front = ConjunctiveGraph()
 
-
-graph.store.graph_aware = False
-# log.debug('\n{}'.format(graph.serialize(format='turtle')))
+cache.store.graph_aware = False
+front.store.graph_aware = False
 log.info('Ready')
-

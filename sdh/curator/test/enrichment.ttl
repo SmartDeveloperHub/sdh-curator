@@ -32,7 +32,6 @@
 <#deliveryChannel> a curator:DeliveryChannel ;
   amqp:broker <#broker> ;
   amqp:exchangeName ""^^types:Name ;
-  amqp:queueName ""^^types:Name ;
   amqp:routingKey ""^^types:Name .
 
 <#broker> a amqp:Broker ;

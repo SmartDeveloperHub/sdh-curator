@@ -30,7 +30,11 @@ from rdflib import BNode, URIRef, Literal, RDFS
 from sdh.curator.store import r
 from sdh.curator.actions.core.delivery import CURATOR_UUID
 from sdh.curator.daemons.fragment import FragmentPlugin, AGORA
-from sdh.curator.store.triples import graph as triples
+from sdh.curator.store.triples import cache
+import uuid
+import shortuuid
+from datetime import datetime
+import base64
 
 __author__ = 'Fernando Serena'
 
@@ -40,23 +44,25 @@ log = logging.getLogger('sdh.curator.actions.enrichment')
 class EnrichmentPlugin(FragmentPlugin):
     @property
     def sink_class(self):
-        return EnrichmentSink
+        return None
 
-    def consume(self, sink, (c, s, p, o), graph):
-        target = sink.target_resource
-        links = dict(map(lambda (l, v): (v, l), sink.target_links))
+    def consume(self, fid, (c, s, p, o), graph, *args):
+        # Check if the fid corresponds to any of the registered enrichments
+        sink = args[0]
         var_candidate = list(graph.objects(c, AGORA.subject))[0]
         if (var_candidate, RDF.type, AGORA.Variable) in graph:
+            target = sink.target_resource
+            links = dict(map(lambda (l, v): (sink.map(v), l), sink.target_links))
             var_label = str(list(graph.objects(var_candidate, RDFS.label))[0])
             if var_label in links:
                 link = links[var_label]
-                if not sink.is_link_set(link):
-                    triples.get_context('#enrichment').add((target, link, s))
+                if (target, link, s) not in cache.get_context('#enrichment'):
+                    print sink.mapping
+                    cache.get_context('#enrichment').add((target, link, s))
                     sink.set_link(links[var_label])
-                    print u'{} {} {} .'.format(target.n3(), link.n3(graph.namespace_manager),
-                                               s.n3())
+                    print u'{} {} {} .'.format(target.n3(), link.n3(graph.namespace_manager), s.n3())
 
-    def complete(self, sink):
+    def complete(self, fid, *args):
         pass
 
 
@@ -79,17 +85,17 @@ class EnrichmentRequest(FragmentRequest):
 
         q_res = list(q_res)
         if len(q_res) != 1:
-            raise SyntaxError('Invalid fragment request')
+            raise SyntaxError('Invalid enrichment request')
 
         request_fields = q_res.pop()
         if not all(request_fields):
-            raise ValueError('Missing fields for fragment request')
+            raise ValueError('Missing fields for enrichment request')
         if request_fields[0] != self._request_node:
             raise SyntaxError('Request node does not match')
 
         (self._target_resource,) = request_fields[1:]
 
-        log.debug("""Parsed attributes of an enrichment action request:
+        log.debug("""Parsed attributes of an enrichment request:
                     -target resource: {}""".format(self._target_resource))
 
         target_pattern = self._graph.predicate_objects(self._target_resource)
@@ -142,41 +148,64 @@ class EnrichmentSink(FragmentSink):
         super(EnrichmentSink, self).__init__()
         self.__target_links = None
         self.__target_resource = None
+        self._enrichment_id = None
+
+    @staticmethod
+    def __generate_enrichment_id(action):
+        target = action.request.target_resource
+        links = '|'.join(sorted([str(pr) for (pr, _) in action.request.target_links]))
+        eid = base64.b64encode('~'.join([target, links]))
+        return eid
 
     def _save(self, action):
         super(EnrichmentSink, self)._save(action)
-        self._pipe.sadd('enrichments', self._request_id)
-        self._pipe.set('{}:enrich'.format(self._request_key), action.request.target_resource)
-        variable_links = [(str(pr), self._variables_dict[v]) for (pr, v) in action.request.target_links]
-        self._pipe.sadd('{}:enrich:links'.format(self._request_key), *variable_links)
-        self._pipe.hmset('{}:enrich:links:status'.format(self._request_key),
-                         dict((pr, None) for (pr, _) in action.request.target_links))
+        b64_eid = self.__generate_enrichment_id(action)
+        if not r.sismember('enrichments', b64_eid):
+            self._pipe.sadd('enrichments', b64_eid)
+            eid = shortuuid.uuid()
+            self._pipe.set('map:enrichments:{}'.format(b64_eid), eid)
+            enrichment_key = 'enrichments:{}'.format(eid)
+            self._pipe.hset('{}'.format(enrichment_key), 'target', action.request.target_resource)
+            self._pipe.hset('{}'.format(enrichment_key), 'fragment_id', self._fragment_id)
+            variable_links = [(str(pr), self._variables_dict[v]) for (pr, v) in action.request.target_links]
+            self._pipe.sadd('{}:links'.format(enrichment_key), *variable_links)
+            self._pipe.hmset('{}:links:status'.format(enrichment_key),
+                             dict((pr, None) for (pr, _) in action.request.target_links))
+        else:
+            eid = r.get('map:enrichments:{}'.format(b64_eid))
+        self._enrichment_id = eid
+        self._pipe.hset('{}'.format(self._request_key), 'enrichment_id', eid)
 
     def _load(self):
         super(EnrichmentSink, self)._load()
-        log.debug('Loading enrichment request data...')
-        self.__target_links = map(lambda (link, v): (URIRef(link), v), [eval(pair_str) for pair_str in
-                                                                        r.smembers('{}:enrich:links'.format(
-                                                                            self._request_key))])
-        self.__target_resource = URIRef(r.get('{}:enrich'.format(self._request_key)))
+        # self.__target_links = map(lambda (link, v): (URIRef(link), v), [eval(pair_str) for pair_str in
+        #                                                                 r.smembers('{}:enrich:links'.format(
+        #                                                                     self._request_key))])
+        # self.__target_resource = URIRef(r.get('{}:enrich'.format(self._request_key)))
+
+    # @property
+    # def target_links(self):
+    #     return self.__target_links
+    #
+    # @property
+    # def target_resource(self):
+    #     return self.__target_resource
 
     @property
-    def target_links(self):
-        return self.__target_links
+    def backed(self):
+        return r.get('fragments:{}:updated'.format(self.fragment_id)) is not None
+        # Overrides fragment sink property -> An enrichment requests is considered as 'backed' if the related
+        # fragment was synced at least once before
 
-    @property
-    def target_resource(self):
-        return self.__target_resource
-
-    def is_link_set(self, link):
-        status = r.hget('{}:enrich:links:status'.format(self._request_key), str(link))
-        return eval(status)
-
-    def set_link(self, link):
-        with r.pipeline(transaction=True) as p:
-            p.multi()
-            p.hset('{}:enrich:links:status'.format(self._request_key), link, True)
-            p.execute()
+    # def is_link_set(self, link):
+    #     status = r.hget('{}:enrich:links:status'.format(self._request_key), str(link))
+    #     return eval(status)
+    #
+    # def set_link(self, link):
+    #     with r.pipeline(transaction=True) as p:
+    #         p.multi()
+    #         p.hset('{}:enrich:links:status'.format(self._request_key), link, True)
+    #         p.execute()
 
 
 class EnrichmentResponse(FragmentResponse):
@@ -194,19 +223,20 @@ class EnrichmentResponse(FragmentResponse):
         graph = CGraph()
         resp_node = BNode('#response')
         graph.add((resp_node, RDF.type, CURATOR.EnrichmentResponse))
-        graph.add((resp_node, CURATOR.messageId, Literal(self.sink.message_id, datatype=TYPES.UUID)))
+        graph.add((resp_node, CURATOR.messageId, Literal(str(uuid.uuid4()), datatype=TYPES.UUID)))
         graph.add((resp_node, CURATOR.responseTo, Literal(self.sink.message_id, datatype=TYPES.UUID)))
+        graph.add((resp_node, CURATOR.responseNumber, Literal("1", datatype=XSD.unsignedLong)))
         graph.add((resp_node, CURATOR.targetResource, self.sink.target_resource))
-        graph.add((resp_node, CURATOR.submittedOn, Literal(self.sink.submitted_on, datatype=XSD.dateTime)))
+        graph.add((resp_node, CURATOR.submittedOn, Literal(datetime.now())))
         curator_node = BNode('#curator')
         graph.add((resp_node, CURATOR.submittedBy, curator_node))
         graph.add((curator_node, RDF.type, FOAF.Agent))
-        graph.add((curator_node, FOAF.agentId, CURATOR_UUID))
+        graph.add((curator_node, CURATOR.agentId, CURATOR_UUID))
         addition_node = BNode('#addition')
         graph.add((resp_node, CURATOR.additionTarget, addition_node))
         graph.add((addition_node, RDF.type, CURATOR.Variable))
         for link, v in self.sink.target_links:
-            trs = self.graph.triples((self.sink.target_resource, link, None))
+            trs = self.graph().triples((self.sink.target_resource, link, None))
             for (_, _, o) in trs:
                 graph.add((addition_node, link, o))
-        return graph.serialize(format='turtle')
+        yield graph.serialize(format='turtle'), {}

@@ -26,7 +26,8 @@ import json
 from flask import make_response, request, jsonify, render_template, url_for
 from flask_negotiate import consumes
 from sdh.curator.server import app
-from sdh.curator.store.triples import graph
+from sdh.curator.store.triples import cache
+from sdh.curator.store import r
 
 __author__ = 'Fernando Serena'
 
@@ -61,12 +62,13 @@ class Conflict(APIError):
 def handle_invalid_usage(error):
     response = jsonify(error.to_dict())
     response.status_code = error.status_code
+
     return response
 
 
 @app.route('/triples/enrichment')
 def enrichment_triples():
-    response = make_response(graph.get_context('#enrichment').serialize(format='turtle'))
+    response = make_response(cache.get_context('#enrichment').serialize(format='turtle'))
     response.headers['Content-Type'] = 'text/turtle'
 
     return response
@@ -74,7 +76,12 @@ def enrichment_triples():
 
 @app.route('/triples')
 def all_triples():
-    response = make_response(graph.serialize(format='turtle'))
+    response = make_response(cache.serialize(format='turtle'))
     response.headers['Content-Type'] = 'text/turtle'
 
     return response
+
+
+@app.route('/requests')
+def get_requests():
+    return jsonify({"requests": list(r.zrange('requests', 0, -1))})

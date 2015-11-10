@@ -35,7 +35,7 @@ RABBIT_CONFIG = app.config['RABBIT']
 
 
 def callback(ch, method, properties, body):
-    action_args = method.routing_key.split('.')[1:]
+    action_args = method.routing_key.split('.')[2:]
     log.debug('Incoming request for "{}"!'.format(action_args[0]))
     try:
         execute(*action_args, data=body)

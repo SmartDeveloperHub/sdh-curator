@@ -29,7 +29,7 @@ __author__ = 'Fernando Serena'
 import pika
 import sys
 from rdflib import Graph, URIRef, RDF, Literal
-from rdflib.namespace import Namespace
+from rdflib.namespace import Namespace, FOAF
 import os
 from datetime import datetime
 
@@ -41,6 +41,10 @@ accepted = False
 
 
 def callback(ch, method, properties, body):
+    print body
+
+
+def accept_callback(ch, method, properties, body):
     global accepted
     if not accepted:
         g = Graph()
@@ -48,8 +52,6 @@ def callback(ch, method, properties, body):
         if len(list(g.subjects(RDF.type, CURATOR.Accepted))) == 1:
             print 'Request accepted!'
             accepted = True
-    else:
-        print body
 
 
 connection = pika.BlockingConnection(pika.ConnectionParameters(
@@ -67,24 +69,32 @@ with open(os.path.join(script_dir, 'query.ttl')) as f:
 
 req_node = list(graph.subjects(RDF.type, CURATOR.QueryRequest)).pop()
 message_id = Literal(str(uuid.uuid4()), datatype=TYPES.UUID)
+agent_id = Literal(str(uuid.uuid4()), datatype=TYPES.UUID)
 graph.set((req_node, CURATOR.messageId, message_id))
 graph.set((req_node, CURATOR.submittedOn, Literal(datetime.now())))
+agent_node = list(graph.subjects(RDF.type, FOAF.Agent)).pop()
+graph.set((agent_node, CURATOR.agentId, agent_id))
 
 ch_node = list(graph.subjects(RDF.type, CURATOR.DeliveryChannel)).pop()
 
-result = channel.queue_declare(auto_delete=True)
+result = channel.queue_declare(exclusive=True)
 queue_name = result.method.queue
 # channel.queue_bind(exchange=exchange, queue=queue_name, routing_key=routing_key)
 channel.basic_consume(callback, queue=queue_name, no_ack=True)
 
-graph.set((ch_node, AMQP.queueName, Literal(queue_name)))
-graph.set((ch_node, AMQP.routingKey, Literal(routing_key)))
+result = channel.queue_declare(exclusive=True)
+accept_queue = result.method.queue
+channel.queue_bind(exchange='sdh', queue=accept_queue, routing_key='curator.response.{}'.format(str(agent_id)))
+channel.basic_consume(accept_callback, queue=accept_queue, no_ack=True)
+
+# graph.set((ch_node, AMQP.queueName, Literal(queue_name)))
+graph.set((ch_node, AMQP.routingKey, Literal(queue_name)))
 graph.set((ch_node, AMQP.exchangeName, Literal(exchange)))
 message = graph.serialize(format='turtle')
 
 
-channel.basic_publish(exchange='curator',
-                      routing_key='request.query',
+channel.basic_publish(exchange='sdh',
+                      routing_key='curator.request.query',
                       body=message)
 
 channel.start_consuming()

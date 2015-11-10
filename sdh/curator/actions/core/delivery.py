@@ -22,12 +22,11 @@
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
 import logging
-
 from abc import ABCMeta, abstractmethod
 from sdh.curator.actions.core.base import Request, Action, Response, Sink
 from sdh.curator.actions.core.utils import CGraph
 from rdflib import BNode, Literal
-from sdh.curator.actions.core import RDF, CURATOR, FOAF, TYPES
+from sdh.curator.actions.core import RDF, CURATOR, FOAF, TYPES, XSD
 from sdh.curator.messaging.reply import reply
 from sdh.curator.store import r
 from datetime import datetime
@@ -61,11 +60,10 @@ class DeliveryRequest(Request):
     def _extract_content(self):
         super(DeliveryRequest, self)._extract_content()
 
-        q_res = self._graph.query("""SELECT ?node ?ex ?q ?rk ?h ?p ?v WHERE {
+        q_res = self._graph.query("""SELECT ?node ?ex ?rk ?h ?p ?v WHERE {
                                   ?node curator:replyTo [
                                         a curator:DeliveryChannel;
                                         amqp:exchangeName ?ex;
-                                        amqp:queueName ?q;
                                         amqp:routingKey ?rk;
                                         amqp:broker [
                                            a amqp:Broker;
@@ -90,20 +88,17 @@ class DeliveryRequest(Request):
         delivery_data = {}
 
         (delivery_data['exchange'],
-         delivery_data['queue'],
          delivery_data['routing_key'],
          delivery_data['host'],
          delivery_data['port'],
          delivery_data['vhost']) = request_fields[1:]
         log.debug("""Parsed attributes of a delivery action request:
                       -exchange name: {}
-                      -queue name: {}
                       -routing key: {}
                       -host: {}
                       -port: {}
                       -virtual host: {}""".format(
             delivery_data['exchange'],
-            delivery_data['queue'],
             delivery_data['routing_key'],
             delivery_data['host'], delivery_data['port'], delivery_data['vhost']))
 
@@ -115,7 +110,7 @@ class DeliveryRequest(Request):
 
     @property
     def channel(self):
-        return {k: self._fields['delivery'][k] for k in ('exchange', 'queue', 'routing_key') if
+        return {k: self._fields['delivery'][k] for k in ('exchange', 'routing_key') if
                 k in self._fields['delivery']}
 
 
@@ -130,8 +125,10 @@ class DeliveryAction(Action):
         form = CGraph()
         for t in _accepted_template:
             form.add(t)
-        form.add((_accept_node, CURATOR.messageId, Literal(message_id, datatype=TYPES.UUID)))
+        form.add((_accept_node, CURATOR.responseTo, Literal(message_id, datatype=TYPES.UUID)))
         form.add((_accept_node, CURATOR.submittedOn, Literal(datetime.now())))
+        form.add((_accept_node, CURATOR.messageId, Literal(str(uuid.uuid4()), datatype=TYPES.UUID)))
+        form.add((_accept_node, CURATOR.responseNumber, Literal("0", datatype=XSD.unsignedLong)))
         for (prefix, ns) in _accepted_template.namespaces():
             form.bind(prefix, ns)
         return form
@@ -139,10 +136,10 @@ class DeliveryAction(Action):
     def __reply_accepted(self):
         graph = self.__get_accept_graph(self.request.message_id)
         log.debug('Notifying acceptance of request number {}'.format(self.request_id))
-        # reply(graph.serialize(format='turtle'), **self.request.channel)
-        reply(graph.serialize(format='turtle'), {'exchange': 'sdh', 'routing_key': 'curator.event'})
-        if self.sink.state != 'ready':
-            self.sink.state = 'accepted'
+        reply(graph.serialize(format='turtle'), exchange='sdh',
+              routing_key='curator.response.{}'.format(self.request.submitted_by))
+        if self.sink.delivery != 'ready':
+            self.sink.delivery = 'accepted'
 
     def submit(self):
         super(DeliveryAction, self).submit()
@@ -173,31 +170,30 @@ class DeliverySink(Sink):
         self._dict_fields['channel'] = r.hgetall('channels:{}'.format(self._dict_fields['channel']))
         self._dict_fields['broker'] = r.hgetall('brokers:{}'.format(self._dict_fields['broker']))
         try:
-            del self._dict_fields['state']
+            del self._dict_fields['delivery']
         except KeyError:
             pass
 
     @abstractmethod
     def _remove(self, pipe):
         super(DeliverySink, self)._remove(pipe)
-        pipe.delete('deliveries:{}'.format(self._request_id))
         pipe.srem('deliveries', self._request_id)
         pipe.srem('deliveries:ready', self._request_id)
         # TODO: Delete channel if it is unique
 
     @property
-    def state(self):
-        return r.hget('deliveries:{}'.format(self._request_id), 'state')
+    def delivery(self):
+        return r.hget('requests:{}'.format(self._request_id), 'delivery')
 
-    @state.setter
-    def state(self, value):
+    @delivery.setter
+    def delivery(self, value):
         with r.pipeline(transaction=True) as p:
             p.multi()
             if value == 'ready':
                 p.sadd('deliveries:ready', self._request_id)
             else:
                 p.srem('deliveries:ready', self._request_id)
-            p.hset('deliveries:{}'.format(self._request_id), 'state', value)
+            p.hset('requests:{}'.format(self._request_id), 'delivery', value)
             p.execute()
 
 

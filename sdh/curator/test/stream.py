@@ -37,20 +37,25 @@ CURATOR = Namespace('http://www.smartdeveloperhub.org/vocabulary/curator#')
 TYPES = Namespace('http://www.smartdeveloperhub.org/vocabulary/types#')
 AMQP = Namespace('http://www.smartdeveloperhub.org/vocabulary/amqp#')
 
+accepted = False
+
 
 def callback(ch, method, properties, body):
-    g = Graph()
-    g.parse(StringIO.StringIO(body), format='turtle')
-    print g.serialize(format='turtle')
-    channel.stop_consuming()
+    if properties.headers.get('state', None) == 'end':
+        print 'End of stream received!'
+        channel.stop_consuming()
+    else:
+        print body
+
 
 def accept_callback(ch, method, properties, body):
-    g = Graph()
-    g.parse(StringIO.StringIO(body), format='turtle')
-    print g.serialize(format='turtle')
-    if len(list(g.subjects(RDF.type, CURATOR.Accepted))) == 1:
-        print 'Request accepted!'
-
+    global accepted
+    if not accepted:
+        g = Graph()
+        g.parse(StringIO.StringIO(body), format='turtle')
+        if len(list(g.subjects(RDF.type, CURATOR.Accepted))) == 1:
+            print 'Request accepted!'
+            accepted = True
 
 
 connection = pika.BlockingConnection(pika.ConnectionParameters(
@@ -62,11 +67,11 @@ exchange = ''
 
 graph = Graph()
 script_dir = os.path.dirname(__file__)
-with open(os.path.join(script_dir, 'enrichment.ttl')) as f:
+with open(os.path.join(script_dir, 'stream.ttl')) as f:
     graph.parse(file=f, format='turtle')
 
 
-req_node = list(graph.subjects(RDF.type, CURATOR.EnrichmentRequest)).pop()
+req_node = list(graph.subjects(RDF.type, CURATOR.StreamRequest)).pop()
 message_id = Literal(str(uuid.uuid4()), datatype=TYPES.UUID)
 agent_id = Literal(str(uuid.uuid4()), datatype=TYPES.UUID)
 graph.set((req_node, CURATOR.messageId, message_id))
@@ -76,7 +81,7 @@ graph.set((agent_node, CURATOR.agentId, agent_id))
 
 ch_node = list(graph.subjects(RDF.type, CURATOR.DeliveryChannel)).pop()
 
-result = channel.queue_declare(auto_delete=True)
+result = channel.queue_declare(exclusive=True)
 queue_name = result.method.queue
 # channel.queue_bind(exchange=exchange, queue=queue_name, routing_key=routing_key)
 channel.basic_consume(callback, queue=queue_name, no_ack=True)
@@ -93,7 +98,7 @@ message = graph.serialize(format='turtle')
 
 
 channel.basic_publish(exchange='sdh',
-                      routing_key='curator.request.enrichment',
+                      routing_key='curator.request.stream',
                       body=message)
 
 channel.start_consuming()
