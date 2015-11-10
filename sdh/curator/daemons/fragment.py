@@ -60,6 +60,9 @@ class FragmentPlugin(object):
     def sink_class(self):
         pass
 
+    def sink_aware(self):
+        return True
+
     @classmethod
     def register(cls, p):
         if issubclass(p, cls):
@@ -109,13 +112,14 @@ def __consume_quad(fid, (c, s, p, o), graph, sinks=None):
 def __notify_completion(fid, sinks):
     for plugin in FragmentPlugin.plugins():
         try:
-            if plugin.sink_class is not None:
-                for rid in filter(lambda _: isinstance(sinks[_], plugin.sink_class), sinks):
-                    sink = sinks[rid]
-                    if sink.delivery == 'accepted':
-                        sink.delivery = 'ready'
+            filtered_sinks = filter(lambda _: isinstance(sinks[_], plugin.sink_class), sinks)
+            for rid in filtered_sinks:
+                sink = sinks[rid]
+                if sink.delivery == 'accepted':
+                    sink.delivery = 'ready'
+                if plugin.sink_aware:
                     plugin.complete(fid, sink)
-            else:
+            if not plugin.sink_aware:
                 plugin.complete(fid)
         except Exception as e:
             log.warning(e.message)
