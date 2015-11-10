@@ -110,10 +110,8 @@ class Sink(object):
     def __getattr__(self, item):
         if item in self._dict_fields:
             value = self._dict_fields[item]
-            if value == 'True':
-                return True
-            elif value == 'False':
-                return False
+            if value == 'True' or value == 'False':
+                return eval(value)
             return value
         return super(Sink, self).__getattribute__(item)
 
