@@ -193,8 +193,7 @@ class FragmentSink(DeliverySink):
 
     @property
     def backed(self):
-        return r.get('fragments:{}:updated'.format(self._fragment_id)) is not None and r.get(
-            'fragments:{}:pulling'.format(self._fragment_id)) is None
+        return self.fragment_updated_on is not None and not self.is_pulling
 
     @property
     def fragment_id(self):
@@ -204,6 +203,14 @@ class FragmentSink(DeliverySink):
         if self.mapping is not None:
             return self.mapping[v]
         return v
+
+    @property
+    def fragment_updated_on(self):
+        return r.get('fragments:{}:updated'.format(self._fragment_id))
+
+    @property
+    def is_pulling(self):
+        return r.get('fragments:{}:pulling'.format(self._fragment_id)) is not None
 
 
 class FragmentResponse(DeliveryResponse):

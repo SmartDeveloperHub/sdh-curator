@@ -242,7 +242,7 @@ class EnrichmentSink(FragmentSink):
 
     @property
     def backed(self):
-        return r.get('fragments:{}:updated'.format(self.fragment_id)) is not None and EnrichmentData(
+        return self.fragment_updated_on is not None and EnrichmentData(
             self.enrichment_id).completed
 
 
