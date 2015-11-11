@@ -87,7 +87,7 @@ class EnrichmentData(object):
         pipe.sadd('fragments:{}:enrichments'.format(self.fragment_id), self.enrichment_id)
         pipe.sadd('{}:links'.format(self._enrichment_key), *self.links)
         pipe.hmset('{}:links:status'.format(self._enrichment_key),
-                   dict((pr, None) for (pr, _) in self.links))
+                   dict((pr, False) for (pr, _) in self.links))
 
     def load(self):
         dict_fields = r.hgetall(self._enrichment_key)
@@ -96,6 +96,16 @@ class EnrichmentData(object):
         self.links = map(lambda (link, v): (URIRef(link), v), [eval(pair_str) for pair_str in
                                                                r.smembers('{}:links'.format(
                                                                    self._enrichment_key))])
+
+    def set_link(self, link):
+        with r.pipeline(transaction=True) as p:
+            p.multi()
+            p.hset('{}:links:status'.format(self._enrichment_key), str(link), True)
+            p.execute()
+
+    @property
+    def completed(self):
+        return all([eval(value) for value in r.hgetall('{}:links:status'.format(self._enrichment_key)).values()])
 
 
 class EnrichmentPlugin(FragmentPlugin):
@@ -112,16 +122,17 @@ class EnrichmentPlugin(FragmentPlugin):
             var_candidate = list(graph.objects(c, AGORA.subject))[0]
             if (var_candidate, RDF.type, AGORA.Variable) in graph:
                 target = e.target
-                # links = dict(map(lambda (l, v): (sink.map(v), l), sink.target_links))
                 links = dict(map(lambda (l, v): (v, l), e.links))
                 var_label = str(list(graph.objects(var_candidate, RDFS.label))[0])
                 if var_label in links:
                     link = links[var_label]
                     if (target, link, s) not in cache.get_context('#enrichment'):
+                        e.set_link(link)
                         cache.get_context('#enrichment').add((target, link, s))
                         print u'{} {} {} .'.format(target.n3(), link.n3(graph.namespace_manager), s.n3())
 
     def complete(self, fid, *args):
+        # TODO: check if all links are set
         pass
 
 
@@ -214,10 +225,11 @@ class EnrichmentSink(FragmentSink):
 
     def _save(self, action):
         super(EnrichmentSink, self)._save(action)
-        variable_links = [(str(pr), self._variables_dict[v]) for (pr, v) in action.request.target_links]
+        variable_links = [(str(pr), self.map(self._variables_dict[v])) for (pr, v) in action.request.target_links]
         enrichment_id = register_enrichment(self._pipe, self._fragment_id, action.request.target_resource,
                                             variable_links)
         self._pipe.hset('{}'.format(self._request_key), 'enrichment_id', enrichment_id)
+        self._dict_fields['enrichment_id'] = enrichment_id
 
     def _load(self):
         super(EnrichmentSink, self)._load()
@@ -230,9 +242,8 @@ class EnrichmentSink(FragmentSink):
 
     @property
     def backed(self):
-        return r.get('fragments:{}:updated'.format(self.fragment_id)) is not None
-        # Overrides fragment sink property -> An enrichment requests is considered as 'backed' if the related
-        # fragment was synced at least once before
+        return r.get('fragments:{}:updated'.format(self.fragment_id)) is not None and EnrichmentData(
+            self.enrichment_id).completed
 
 
 class EnrichmentResponse(FragmentResponse):
