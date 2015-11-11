@@ -87,8 +87,12 @@ def __deliver_responses():
 
         sent = r.smembers('deliveries:sent')
         for rid in sent:
-            response = build_response(rid)
-            response.sink.remove()
+            try:
+                response = build_response(rid)
+                response.sink.remove()
+            except AttributeError:
+                log.warning('Request number {} was deleted by other means'.format(rid))
+                pass
 
         r.delete('deliveries:sent')
 
