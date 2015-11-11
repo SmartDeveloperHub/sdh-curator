@@ -44,13 +44,15 @@ def callback(ch, method, properties, body):
     print g.serialize(format='turtle')
     channel.stop_consuming()
 
+
 def accept_callback(ch, method, properties, body):
     g = Graph()
     g.parse(StringIO.StringIO(body), format='turtle')
     print g.serialize(format='turtle')
     if len(list(g.subjects(RDF.type, CURATOR.Accepted))) == 1:
         print 'Request accepted!'
-
+    else:
+        print 'Bad request!'
 
 
 connection = pika.BlockingConnection(pika.ConnectionParameters(
