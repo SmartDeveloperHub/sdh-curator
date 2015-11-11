@@ -39,18 +39,43 @@ log = logging.getLogger('sdh.curator.actions.delivery')
 
 CURATOR_UUID = Literal(str(uuid.uuid4()), datatype=TYPES.UUID)
 
-_accepted_template = CGraph()
-_accept_node = BNode('#accepted')
-_curator_node = BNode('#curator')
-_accepted_template.add((_accept_node, RDF.type, CURATOR.Accepted))
-_accepted_template.add((_curator_node, RDF.type, FOAF.Agent))
-_accepted_template.add((_accept_node, CURATOR.submittedBy, _curator_node))
-_accepted_template.add((_accept_node, CURATOR.submittedBy, _curator_node))
-_accepted_template.add(
-    (_curator_node, CURATOR.agentId, CURATOR_UUID))
-_accepted_template.bind('types', TYPES)
-_accepted_template.bind('curator', CURATOR)
-_accepted_template.bind('foaf', FOAF)
+def _build_reply_templates():
+    accepted = CGraph()
+    failure = CGraph()
+    response_node = BNode()
+    curator_node = BNode()
+    accepted.add((response_node, RDF.type, CURATOR.Accepted))
+    accepted.add((curator_node, RDF.type, FOAF.Agent))
+    accepted.add((response_node, CURATOR.responseNumber, Literal("0", datatype=XSD.unsignedLong)))
+    accepted.add((response_node, CURATOR.submittedBy, curator_node))
+    accepted.add((response_node, CURATOR.submittedBy, curator_node))
+    accepted.add(
+        (curator_node, CURATOR.agentId, CURATOR_UUID))
+    accepted.bind('types', TYPES)
+    accepted.bind('curator', CURATOR)
+    accepted.bind('foaf', FOAF)
+
+    for triple in accepted:
+        failure.add(triple)
+    failure.set((response_node, RDF.type, CURATOR.Failure))
+
+    return accepted, failure
+
+def build_reply(template, reply_to):
+    reply_graph = CGraph()
+    root_node = None
+    for (s, p, o) in template:
+        reply_graph.add((s, p, o))
+        if p == RDF.type:
+            root_node = s
+    reply_graph.add((root_node, CURATOR.responseTo, Literal(reply_to, datatype=TYPES.UUID)))
+    reply_graph.set((root_node, CURATOR.submittedOn, Literal(datetime.now())))
+    reply_graph.set((root_node, CURATOR.messageId, Literal(str(uuid.uuid4()), datatype=TYPES.UUID)))
+    for (prefix, ns) in template.namespaces():
+        reply_graph.bind(prefix, ns)
+    return reply_graph
+
+accepted_template, failure_template = _build_reply_templates()
 
 
 class DeliveryRequest(Request):
@@ -120,26 +145,20 @@ class DeliveryAction(Action):
     def __init__(self, message):
         super(DeliveryAction, self).__init__(message)
 
-    @staticmethod
-    def __get_accept_graph(message_id):
-        form = CGraph()
-        for t in _accepted_template:
-            form.add(t)
-        form.add((_accept_node, CURATOR.responseTo, Literal(message_id, datatype=TYPES.UUID)))
-        form.add((_accept_node, CURATOR.submittedOn, Literal(datetime.now())))
-        form.add((_accept_node, CURATOR.messageId, Literal(str(uuid.uuid4()), datatype=TYPES.UUID)))
-        form.add((_accept_node, CURATOR.responseNumber, Literal("0", datatype=XSD.unsignedLong)))
-        for (prefix, ns) in _accepted_template.namespaces():
-            form.bind(prefix, ns)
-        return form
-
     def __reply_accepted(self):
-        graph = self.__get_accept_graph(self.request.message_id)
+        graph = build_reply(accepted_template, self.request.message_id)
         log.debug('Notifying acceptance of request number {}'.format(self.request_id))
         reply(graph.serialize(format='turtle'), exchange='sdh',
               routing_key='curator.response.{}'.format(self.request.submitted_by))
         if self.sink.delivery != 'ready':
             self.sink.delivery = 'accepted'
+
+    def __reply_failure(self):
+        graph = build_reply(failure_template, self.request.message_id)
+        log.debug('Notifying failure of request number {}'.format(self.request_id))
+        reply(graph.serialize(format='turtle'), exchange='sdh',
+              routing_key='curator.response.{}'.format(self.request.submitted_by))
+        self.sink.delivery = 'sent'
 
     def submit(self):
         super(DeliveryAction, self).submit()
@@ -148,6 +167,7 @@ class DeliveryAction(Action):
         except Exception, e:
             log.warning(e.message)
             self.sink.remove()
+            self.__reply_failure()
         if self.sink.ready:
             self.sink.delivery = 'ready'
 
