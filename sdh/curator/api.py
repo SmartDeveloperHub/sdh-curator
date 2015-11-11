@@ -26,7 +26,7 @@ import json
 from flask import make_response, request, jsonify, render_template, url_for
 from flask_negotiate import consumes
 from sdh.curator.server import app
-from sdh.curator.store.triples import cache
+from sdh.curator.store.triples import cache, load_stream_triples
 from sdh.curator.store import r
 
 __author__ = 'Fernando Serena'
@@ -58,6 +58,12 @@ class Conflict(APIError):
         super(Conflict, self).__init__(message, 409, payload)
 
 
+def filter_hash_attrs(key, predicate):
+    hash_map = r.hgetall(key)
+    visible_attrs = filter(predicate, hash_map)
+    return {attr: hash_map[attr] for attr in filter(lambda x: x in visible_attrs, hash_map)}
+
+
 @app.errorhandler(APIError)
 def handle_invalid_usage(error):
     response = jsonify(error.to_dict())
@@ -84,4 +90,58 @@ def all_triples():
 
 @app.route('/requests')
 def get_requests():
-    return jsonify({"requests": list(r.zrange('requests', 0, -1))})
+    request_keys = filter(lambda x: len(x.split(':')) == 2, r.keys('requests:*'))
+    requests = [rk.split(':')[1] for rk in request_keys]
+    return jsonify({"requests": requests})
+
+
+@app.route('/requests/<rid>')
+def get_request(rid):
+    if not r.keys('requests:{}'.format(rid)):
+        raise NotFound('The request {} does not exist'.format(rid))
+    r_dict = filter_hash_attrs('requests:{}'.format(rid), lambda x: not x.startswith('__'))
+    channel = r_dict['channel']
+    ch_dict = r.hgetall('channels:{}'.format(channel))
+    broker = r_dict['broker']
+    br_dict = r.hgetall('brokers:{}'.format(broker))
+    r_dict['channel'] = ch_dict
+    r_dict['broker'] = br_dict
+    r_dict['pattern'] = "{ %s }" % r_dict['pattern']
+    if 'mapping' in r_dict:
+        r_dict['mapping'] = eval(r_dict['mapping'])
+
+    return jsonify(r_dict)
+
+
+@app.route('/fragments')
+def get_fragments():
+    fragments = list(r.smembers('fragments'))
+    return jsonify({"fragments": fragments})
+
+
+@app.route('/fragments/<fid>')
+def get_fragment(fid):
+    if not r.sismember('fragments', fid):
+        raise NotFound('The fragment {} does not exist'.format(fid))
+    fr_dict = {'id': fid, 'pattern': "{ %s }" % ' . '.join(r.smembers('fragments:{}:gp'.format(fid))),
+               'updated': r.get('fragments:{}:updated'.format(fid)),
+               'pulling': eval(r.get('fragments:{}:pulling'.format(fid))),
+               'requests': list(r.smembers('fragments:{}:requests'.format(fid)))}
+    if fr_dict['pulling']:
+        fr_dict['triples'] = r.zcard('fragments:{}:stream'.format(fid))
+
+    return jsonify(fr_dict)
+
+
+@app.route('/fragments/<fid>/triples')
+def get_fragment_triples(fid):
+    if not r.sismember('fragments', fid):
+        raise NotFound('The fragment {} does not exist'.format(fid))
+
+    if eval(r.get('fragments:{}:pulling'.format(fid))):
+        triples = [u'{} {} {} .'.format(s.n3(), p.n3(), o.n3()) for (s, p, o) in load_stream_triples(fid, '+inf')]
+        response = make_response('\n'.join(triples))
+        response.headers['content-type'] = 'text/n3'
+        return response
+
+    return 'hello!'
