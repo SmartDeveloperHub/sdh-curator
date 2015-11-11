@@ -50,13 +50,13 @@ class StreamPlugin(FragmentPlugin):
         if sink.stream:
             log.debug('[{}] Streaming fragment triple...'.format(sink.request_id))
             reply(u'ST {} {} {} .'.format(s.n3(), p.n3(), o.n3()),
-                  **sink.channel)
+                  **sink.recipient)
 
     def complete(self, fid, *args):
         sink = args[0]
         if sink.delivery == 'streaming':
             sink.delivery = 'sent'
-            reply('', headers={'state': 'end'}, **sink.channel)
+            reply('', headers={'state': 'end'}, **sink.recipient)
         sink.stream = False
 
 
