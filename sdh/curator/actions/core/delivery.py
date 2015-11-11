@@ -168,11 +168,15 @@ class DeliveryAction(Action):
             self.sink.delivery = 'accepted'
 
     def _reply_failure(self, reason=None):
-        graph = build_reply(failure_template, self.request.message_id, reason)
-        log.debug('Notifying failure of request number {}'.format(self.request_id))
-        reply(graph.serialize(format='turtle'), exchange='sdh',
-              routing_key='curator.response.{}'.format(self.request.submitted_by),
-              **self.request.broker)
+        try:
+            graph = build_reply(failure_template, self.request.message_id, reason)
+            log.debug('Notifying failure of request number {}'.format(self.request_id))
+            reply(graph.serialize(format='turtle'), exchange='sdh',
+                  routing_key='curator.response.{}'.format(self.request.submitted_by),
+                  **self.request.broker)
+        except KeyError:
+            # Delivery channel data may be invalid
+            pass
 
     def submit(self):
         super(DeliveryAction, self).submit()
