@@ -152,6 +152,7 @@ class FragmentSink(DeliverySink):
         super(FragmentSink, self)._save(action)
         self._build_graph_pattern(action)
         fragment_mapping = self.__check_gp()
+        mapping = None
         exists = fragment_mapping is not None
         if not exists:
             self._fragment_id = str(uuid())
@@ -164,9 +165,11 @@ class FragmentSink(DeliverySink):
         self._pipe.sadd('fragments:{}:requests'.format(self._fragment_id), self._request_id)
         self._pipe.hset('{}'.format(self._request_key), 'gp', self._fragment_id)
         self._dict_fields['gp'] = r.smembers('fragments:{}:gp'.format(self._fragment_id))
+        self._dict_fields['mapping'] = mapping
 
-        if exists and self.backed:
-            self.delivery = 'ready'
+    @property
+    def ready(self):
+        return self.backed
 
     @abstractmethod
     def _remove(self, pipe):
@@ -185,7 +188,6 @@ class FragmentSink(DeliverySink):
         self._dict_fields['mapping'] = mapping
         try:
             del self._dict_fields['backed']
-            del self._
         except KeyError:
             pass
 
