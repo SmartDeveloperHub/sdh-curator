@@ -27,14 +27,23 @@ import logging
 import pika
 from pika.exceptions import ChannelClosed
 from pika.spec import BasicProperties
+from sdh.curator.server import app
+
+RABBIT = app.config['RABBIT']
 
 __author__ = 'Fernando Serena'
 
 log = logging.getLogger('sdh.curator.messaging.reply')
 
 
-def reply(message, exchange=None, routing_key=None, headers=None):
-    connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
+def reply(message, exchange=None, routing_key=None, headers=None, host=RABBIT['host'], port=RABBIT['port'], vhost=None):
+    try:
+        connection_params = pika.ConnectionParameters(host=host, port=port)
+        connection = pika.BlockingConnection(connection_params)
+    except Exception, e:
+        log.warning(e.message)
+        return
+
     try:
         channel = connection.channel()
         if not any([exchange, routing_key]):
@@ -42,9 +51,6 @@ def reply(message, exchange=None, routing_key=None, headers=None):
 
         exchange = '' if exchange is None else exchange
         routing_key = '' if routing_key is None else routing_key
-        # if not exchange and not routing_key:
-        #     routing_key = queue
-        # mandatory = True
         channel.confirm_delivery()
 
         sent = channel.basic_publish(exchange=exchange,
