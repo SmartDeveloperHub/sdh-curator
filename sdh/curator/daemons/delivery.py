@@ -85,6 +85,13 @@ def __deliver_responses():
             if obsolete_rid in futures and futures[obsolete_rid].done():
                 del futures[obsolete_rid]
 
+        sent = r.smembers('deliveries:sent')
+        for rid in sent:
+            response = build_response(rid)
+            response.sink.remove()
+
+        r.delete('deliveries:sent')
+
         time.sleep(1)
 
 

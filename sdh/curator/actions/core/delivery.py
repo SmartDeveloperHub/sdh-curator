@@ -193,14 +193,16 @@ class DeliverySink(Sink):
             p.multi()
             if value == 'ready':
                 p.sadd('deliveries:ready', self._request_id)
-            else:
+            elif value == 'sent':
                 p.srem('deliveries:ready', self._request_id)
+                p.sadd('deliveries:sent', self._request_id)
             p.hset('requests:{}'.format(self._request_id), 'delivery', value)
             p.execute()
 
     @abstractproperty
     def ready(self):
         return False
+
 
 class DeliveryResponse(Response):
     __metaclass__ = ABCMeta
