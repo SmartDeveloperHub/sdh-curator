@@ -152,6 +152,19 @@ class DeliveryAction(Action):
             self.sink.delivery = 'ready'
 
 
+def used_channels():
+    req_channel_keys = r.keys('requests:*')
+    for rck in req_channel_keys:
+        try:
+            channel = r.hget(rck, 'channel')
+            yield channel
+        except Exception as e:
+            log.warning(e.message)
+
+
+def channel_sharing(channel_b64):
+    return len(list(filter(lambda x: x == channel_b64, used_channels()))) - 1  # Don't count itself
+
 class DeliverySink(Sink):
     __metaclass__ = ABCMeta
 
@@ -181,7 +194,11 @@ class DeliverySink(Sink):
         super(DeliverySink, self)._remove(pipe)
         pipe.srem('deliveries', self._request_id)
         pipe.srem('deliveries:ready', self._request_id)
-        # TODO: Delete channel if it is unique
+        channel_b64 = r.hget(self._request_key, 'channel')
+        sharing = channel_sharing(channel_b64)
+        if not sharing:
+            log.debug('Removing channel {}'.format(channel_b64))
+            pipe.delete('channels:{}'.format(channel_b64))
 
     @property
     def delivery(self):
