@@ -163,8 +163,9 @@ class FragmentSink(DeliverySink):
             self._pipe.hset(self._request_key, 'mapping', mapping)
 
         self._pipe.sadd('fragments:{}:requests'.format(self._fragment_id), self._request_id)
-        self._pipe.hset('{}'.format(self._request_key), 'gp', self._fragment_id)
-        self._dict_fields['gp'] = r.smembers('fragments:{}:gp'.format(self._fragment_id))
+        self._pipe.hset('{}'.format(self._request_key), 'fragment_id', self._fragment_id)
+        self._pipe.hset('{}'.format(self._request_key), 'pattern', ' . '.join(self._graph_pattern))
+        # self._dict_fields['gp'] = r.smembers('fragments:{}:gp'.format(self._fragment_id))
         self._dict_fields['mapping'] = mapping
 
     @property
@@ -173,21 +174,21 @@ class FragmentSink(DeliverySink):
 
     @abstractmethod
     def _remove(self, pipe):
-        self._fragment_id = r.hget('{}'.format(self._request_key), 'gp')
+        self._fragment_id = r.hget('{}'.format(self._request_key), 'fragment_id')
         pipe.srem('fragments:{}:requests'.format(self._fragment_id), self._request_id)
         super(FragmentSink, self)._remove(pipe)
 
     @abstractmethod
     def _load(self):
         super(FragmentSink, self)._load()
-        self._fragment_id = self._dict_fields['gp']
-        self._dict_fields['gp'] = GraphPattern(r.smembers('fragments:{}:gp'.format(self._fragment_id)))
+        self._fragment_id = self._dict_fields['fragment_id']
+        self._graph_pattern = GraphPattern(r.smembers('fragments:{}:gp'.format(self._fragment_id)))
         mapping = self._dict_fields.get('mapping', None)
         if mapping is not None:
             mapping = eval(mapping)
         self._dict_fields['mapping'] = mapping
         try:
-            del self._dict_fields['backed']
+            del self._dict_fields['fragment_id']
         except KeyError:
             pass
 
@@ -211,6 +212,10 @@ class FragmentSink(DeliverySink):
     @property
     def is_pulling(self):
         return r.get('fragments:{}:pulling'.format(self._fragment_id)) is not None
+
+    @property
+    def gp(self):
+        return self._graph_pattern
 
 
 class FragmentResponse(DeliveryResponse):

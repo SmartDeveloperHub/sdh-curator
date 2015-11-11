@@ -127,13 +127,13 @@ class StreamSink(FragmentSink):
 
     @property
     def stream(self):
-        return parse_bool(r.hget('requests:{}'.format(self._request_id), 'stream'))
+        return parse_bool(r.hget('requests:{}'.format(self._request_id), '__stream'))
 
     @stream.setter
     def stream(self, value):
         with r.pipeline(transaction=True) as p:
             p.multi()
-            p.hset('requests:{}'.format(self._request_id), 'stream', value)
+            p.hset('requests:{}'.format(self._request_id), '__stream', value)
             p.execute()
 
 

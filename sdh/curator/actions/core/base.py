@@ -147,8 +147,10 @@ class Sink(object):
         self._pipe.hmset(self._request_key, {'submitted_by': action.request.submitted_by,
                                              'submitted_on': action.request.submitted_on,
                                              'message_id': action.request.message_id,
-                                             'response_class': _fullname(action.response_class)(),
-                                             'id': action.id})
+                                             'id': self._request_id,
+                                             '__response_class': _fullname(action.response_class)(),
+                                             'type': action.__class__.__module__,
+                                             '__hash': action.id})
 
     @property
     def request_id(self):

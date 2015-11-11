@@ -35,7 +35,7 @@ thp = ThreadPoolExecutor(max_workers=8)
 
 def build_response(rid):
     from sdh.curator.actions import get_instance
-    response_class = r.hget('requests:{}'.format(rid), 'response_class')
+    response_class = r.hget('requests:{}'.format(rid), '__response_class')
     if response_class is None:
         raise AttributeError('Cannot create a response for {}'.format(rid))
     (module_name, class_name) = tuple(response_class.split('.'))
