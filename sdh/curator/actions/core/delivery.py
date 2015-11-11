@@ -22,7 +22,7 @@
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
 import logging
-from abc import ABCMeta, abstractmethod
+from abc import ABCMeta, abstractmethod, abstractproperty
 from sdh.curator.actions.core.base import Request, Action, Response, Sink
 from sdh.curator.actions.core.utils import CGraph
 from rdflib import BNode, Literal
@@ -148,6 +148,8 @@ class DeliveryAction(Action):
         except Exception, e:
             log.warning(e.message)
             self.sink.remove()
+        if self.sink.ready:
+            self.sink.delivery = 'ready'
 
 
 class DeliverySink(Sink):
@@ -196,6 +198,9 @@ class DeliverySink(Sink):
             p.hset('requests:{}'.format(self._request_id), 'delivery', value)
             p.execute()
 
+    @abstractproperty
+    def ready(self):
+        return False
 
 class DeliveryResponse(Response):
     __metaclass__ = ABCMeta
