@@ -104,7 +104,11 @@ class StreamAction(FragmentAction):
         return self.__request
 
     def submit(self):
-        super(StreamAction, self).submit()
+        try:
+            super(StreamAction, self).submit()
+        except Exception as e:
+            log.debug('Bad request: {}'.format(e.message))
+            self._reply_failure(e.message)
 
 
 class StreamSink(FragmentSink):

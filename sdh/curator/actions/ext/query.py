@@ -93,7 +93,11 @@ class QueryAction(FragmentAction):
         return self.__request
 
     def submit(self):
-        super(QueryAction, self).submit()
+        try:
+            super(QueryAction, self).submit()
+        except Exception as e:
+            log.debug('Bad request: {}'.format(e.message))
+            self._reply_failure(e.message)
 
 
 class QuerySink(FragmentSink):

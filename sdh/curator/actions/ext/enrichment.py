@@ -208,7 +208,11 @@ class EnrichmentAction(FragmentAction):
         return self.__request
 
     def submit(self):
-        super(EnrichmentAction, self).submit()
+        try:
+            super(EnrichmentAction, self).submit()
+        except Exception as e:
+            log.debug('Bad request: {}'.format(e.message))
+            self._reply_failure(e.message)
 
 
 class EnrichmentSink(FragmentSink):
