@@ -25,7 +25,7 @@ import logging
 from abc import ABCMeta, abstractmethod, abstractproperty
 from sdh.curator.actions.core.base import Request, Action, Response, Sink
 from sdh.curator.actions.core.utils import CGraph
-from rdflib import BNode, Literal
+from rdflib import BNode, Literal, RDFS
 from sdh.curator.actions.core import RDF, CURATOR, FOAF, TYPES, XSD
 from sdh.curator.messaging.reply import reply
 from sdh.curator.store import r
@@ -36,8 +36,8 @@ import uuid
 __author__ = 'Fernando Serena'
 
 log = logging.getLogger('sdh.curator.actions.delivery')
-
 CURATOR_UUID = Literal(str(uuid.uuid4()), datatype=TYPES.UUID)
+
 
 def _build_reply_templates():
     accepted = CGraph()
@@ -58,10 +58,13 @@ def _build_reply_templates():
     for triple in accepted:
         failure.add(triple)
     failure.set((response_node, RDF.type, CURATOR.Failure))
+    for (prefix, ns) in accepted.namespaces():
+        failure.bind(prefix, ns)
 
     return accepted, failure
 
-def build_reply(template, reply_to):
+
+def build_reply(template, reply_to, comment=None):
     reply_graph = CGraph()
     root_node = None
     for (s, p, o) in template:
@@ -71,6 +74,8 @@ def build_reply(template, reply_to):
     reply_graph.add((root_node, CURATOR.responseTo, Literal(reply_to, datatype=TYPES.UUID)))
     reply_graph.set((root_node, CURATOR.submittedOn, Literal(datetime.now())))
     reply_graph.set((root_node, CURATOR.messageId, Literal(str(uuid.uuid4()), datatype=TYPES.UUID)))
+    if comment is not None:
+        reply_graph.set((root_node, RDFS.comment, Literal(comment, datatype=XSD.string)))
     for (prefix, ns) in template.namespaces():
         reply_graph.bind(prefix, ns)
     return reply_graph
@@ -153,12 +158,11 @@ class DeliveryAction(Action):
         if self.sink.delivery != 'ready':
             self.sink.delivery = 'accepted'
 
-    def __reply_failure(self):
-        graph = build_reply(failure_template, self.request.message_id)
+    def _reply_failure(self, reason=None):
+        graph = build_reply(failure_template, self.request.message_id, reason)
         log.debug('Notifying failure of request number {}'.format(self.request_id))
         reply(graph.serialize(format='turtle'), exchange='sdh',
               routing_key='curator.response.{}'.format(self.request.submitted_by))
-        self.sink.delivery = 'sent'
 
     def submit(self):
         super(DeliveryAction, self).submit()
@@ -167,7 +171,6 @@ class DeliveryAction(Action):
         except Exception, e:
             log.warning(e.message)
             self.sink.remove()
-            self.__reply_failure()
         if self.sink.ready:
             self.sink.delivery = 'ready'
 
@@ -184,6 +187,7 @@ def used_channels():
 
 def channel_sharing(channel_b64):
     return len(list(filter(lambda x: x == channel_b64, used_channels()))) - 1  # Don't count itself
+
 
 class DeliverySink(Sink):
     __metaclass__ = ABCMeta
