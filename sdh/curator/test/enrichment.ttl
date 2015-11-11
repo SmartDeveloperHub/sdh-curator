@@ -24,7 +24,7 @@
   curator:submittedBy <#connector> ;
   curator:submittedOn "2015-09-29T09:30:10+01:00"^^xsd:dateTime ;
   curator:replyTo <#deliveryChannel> ;
-  curator:targetResource <http://localhost:9001/ci/builds/3/> .
+  curator:targetResource <http://localhost:9001/ci/builds/4/> .
 
 <#connector> a foaf:Agent ;
   curator:agentId "00000000-0000-0000-0001-000000000001"^^types:UUID .
@@ -35,11 +35,11 @@
   amqp:routingKey ""^^types:Name .
 
 <#broker> a amqp:Broker ;
-  amqp:host "127.0.0.1"^^types:Hostname ;
-  amqp:port "41980"^^types:Port ;
-  amqp:virtualHost "/sdh/curator/"^^types:Path .
+  amqp:host "localhost"^^types:Hostname ;
+  amqp:port "5672"^^types:Port ;
+  amqp:virtualHost ""^^types:Path .
 
-<http://localhost:9001/ci/builds/3/>
+<http://localhost:9001/ci/builds/4/>
   ci:forBranch  _:branch .
 
 _:repository a curator:Variable ;

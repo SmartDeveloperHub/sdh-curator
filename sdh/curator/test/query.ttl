@@ -35,9 +35,9 @@
   amqp:routingKey ""^^types:Name .
 
 <#broker> a amqp:Broker ;
-  amqp:host "127.0.0.1"^^types:Hostname ;
-  amqp:port "41980"^^types:Port ;
-  amqp:virtualHost "/sdh/curator/"^^types:Path .
+  amqp:host "localhost"^^types:Hostname ;
+  amqp:port "5672"^^types:Port ;
+  amqp:virtualHost ""^^types:Path .
 
 _:repository a curator:Variable ;
   doap:developer  _:dev ;
