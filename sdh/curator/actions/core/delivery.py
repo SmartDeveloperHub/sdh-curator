@@ -136,12 +136,20 @@ class DeliveryRequest(Request):
 
     @property
     def broker(self):
-        return {k: self._fields['delivery'][k] for k in ('host', 'port', 'vhost') if k in self._fields['delivery']}
+        broker_dict = {k: self._fields['delivery'][k].toPython() for k in ('host', 'port', 'vhost') if k in self._fields['delivery']}
+        broker_dict['port'] = int(broker_dict['port'])
+        return broker_dict
 
     @property
     def channel(self):
-        return {k: self._fields['delivery'][k] for k in ('exchange', 'routing_key') if
+        return {k: self._fields['delivery'][k].toPython() for k in ('exchange', 'routing_key') if
                 k in self._fields['delivery']}
+
+    @property
+    def recipient(self):
+        recipient = self.broker.copy()
+        recipient.update(self.channel)
+        return recipient
 
 
 class DeliveryAction(Action):
@@ -154,7 +162,8 @@ class DeliveryAction(Action):
         graph = build_reply(accepted_template, self.request.message_id)
         log.debug('Notifying acceptance of request number {}'.format(self.request_id))
         reply(graph.serialize(format='turtle'), exchange='sdh',
-              routing_key='curator.response.{}'.format(self.request.submitted_by))
+              routing_key='curator.response.{}'.format(self.request.submitted_by),
+              **self.request.broker)
         if self.sink.delivery != 'ready':
             self.sink.delivery = 'accepted'
 
@@ -162,7 +171,8 @@ class DeliveryAction(Action):
         graph = build_reply(failure_template, self.request.message_id, reason)
         log.debug('Notifying failure of request number {}'.format(self.request_id))
         reply(graph.serialize(format='turtle'), exchange='sdh',
-              routing_key='curator.response.{}'.format(self.request.submitted_by))
+              routing_key='curator.response.{}'.format(self.request.submitted_by),
+              **self.request.broker)
 
     def submit(self):
         super(DeliveryAction, self).submit()
@@ -196,7 +206,7 @@ class DeliverySink(Sink):
     def _save(self, action):
         super(DeliverySink, self)._save(action)
         self._pipe.sadd('deliveries', self._request_id)
-        broker_b64 = base64.b64encode('|'.join(action.request.broker.values()))
+        broker_b64 = base64.b64encode('|'.join(map(lambda x: str(x), action.request.broker.values())))
         channel_b64 = base64.b64encode('|'.join(action.request.channel.values()))
         self._pipe.hmset('channels:{}'.format(channel_b64), action.request.channel)
         self._pipe.hmset('brokers:{}'.format(broker_b64), action.request.broker)
@@ -208,6 +218,10 @@ class DeliverySink(Sink):
         super(DeliverySink, self)._load()
         self._dict_fields['channel'] = r.hgetall('channels:{}'.format(self._dict_fields['channel']))
         self._dict_fields['broker'] = r.hgetall('brokers:{}'.format(self._dict_fields['broker']))
+        self._dict_fields['broker']['port'] = int(self._dict_fields['broker']['port'])
+        recipient = self._dict_fields['channel'].copy()
+        recipient.update(self._dict_fields['broker'])
+        self._dict_fields['recipient'] = recipient
         try:
             del self._dict_fields['delivery']
         except KeyError:

@@ -24,7 +24,6 @@
 import logging
 from threading import Thread
 from sdh.curator.store import r
-from concurrent.futures import wait, ALL_COMPLETED
 from concurrent.futures.thread import ThreadPoolExecutor
 from sdh.curator.messaging.reply import reply
 
@@ -51,9 +50,9 @@ def __deliver_response(rid):
             log.debug('Delivery-{} in process...'.format(rid))
             messages = response.build()
             message, headers = messages.next()
-            reply(message, headers=headers, **response.sink.channel)
+            reply(message, headers=headers, **response.sink.recipient)
             for (message, headers) in messages:
-                reply(message, headers=headers, **response.sink.channel)
+                reply(message, headers=headers, **response.sink.recipient)
             log.debug('Response sent for request number {}'.format(rid))
             if response.sink.delivery == 'ready':
                 response.sink.delivery = 'sent'
