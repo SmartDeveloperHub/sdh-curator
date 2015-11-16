@@ -30,7 +30,7 @@ from sdh.curator.messaging.reply import reply
 __author__ = 'Fernando Serena'
 
 log = logging.getLogger('sdh.curator.daemons.delivery')
-thp = ThreadPoolExecutor(max_workers=8)
+thp = ThreadPoolExecutor(max_workers=4)
 
 
 def build_response(rid):
