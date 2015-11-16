@@ -54,6 +54,8 @@ class FragmentRequest(DeliveryRequest):
         super(FragmentRequest, self)._extract_content()
 
         variables = set(self._graph.subjects(RDF.type, CURATOR.Variable))
+        if not variables:
+            raise SyntaxError('There are no variables specified for this request')
         log.debug(
             'Found {} variables in the the fragment pattern'.format(len(variables)))
 
@@ -61,6 +63,7 @@ class FragmentRequest(DeliveryRequest):
         for v in variables:
             self.__pattern_graph.add((v, RDF.type, CURATOR.Variable))
             self._follow_variable(v, visited=visited)
+
         log.debug('Extracted (fragment) pattern graph:\n{}'.format(self.__pattern_graph.serialize(format='turtle')))
 
     def _add_pattern_link(self, node, triple):
@@ -124,14 +127,17 @@ class FragmentSink(DeliverySink):
         if v_labels is not None:
             self._variables_dict = v_labels.copy()
         for i, v in enumerate(variables):
-            self._variables_dict[v] = '?v{}'.format(i)
+            labels = list(action.request.pattern.objects(v, CURATOR.label))
+            preferred_label = labels.pop() if len(labels) == 1 else ''
+            label = preferred_label if preferred_label.startswith('?') else '?v{}'.format(i)
+            self._variables_dict[v] = label
         for v in self._variables_dict.keys():
             v_in = action.request.pattern.subject_predicates(v)
             for (s, pr) in v_in:
                 s_part = self._variables_dict[s] if s in self._variables_dict else self._n3(action, s)
                 self._graph_pattern.add(u'{} {} {}'.format(s_part, self._n3(action, pr), self._variables_dict[v]))
             v_out = action.request.pattern.predicate_objects(v)
-            for (pr, o) in [_ for _ in v_out if _[1] != CURATOR.Variable]:
+            for (pr, o) in [_ for _ in v_out if _[1] != CURATOR.Variable and not _[0].startswith(CURATOR)]:
                 o_part = self._variables_dict[o] if o in self._variables_dict else (
                     '"{}"'.format(o) if isinstance(o, Literal) else self._n3(action, o))
                 p_part = self._n3(action, pr) if pr != RDF.type else 'a'
@@ -165,7 +171,6 @@ class FragmentSink(DeliverySink):
         self._pipe.sadd('fragments:{}:requests'.format(self._fragment_id), self._request_id)
         self._pipe.hset('{}'.format(self._request_key), 'fragment_id', self._fragment_id)
         self._pipe.hset('{}'.format(self._request_key), 'pattern', ' . '.join(self._graph_pattern))
-        # self._dict_fields['gp'] = r.smembers('fragments:{}:gp'.format(self._fragment_id))
         self._dict_fields['mapping'] = mapping
 
     @property
@@ -194,7 +199,7 @@ class FragmentSink(DeliverySink):
 
     @property
     def backed(self):
-        return self.fragment_updated_on is not None and not self.is_pulling
+        return self.fragment_updated_on is not None
 
     @property
     def fragment_id(self):
@@ -212,6 +217,10 @@ class FragmentSink(DeliverySink):
     @property
     def is_pulling(self):
         return r.get('fragments:{}:pulling'.format(self._fragment_id)) is not None
+
+    @property
+    def fragment_contexts(self):
+        return r.smembers('fragments:{}:contexts'.format(self._fragment_id))
 
     @property
     def gp(self):
@@ -234,9 +243,7 @@ class FragmentResponse(DeliveryResponse):
 
     @staticmethod
     def graph(stream=False):
-        if not stream:
-            return cache
-        return front
+        return cache
 
     def fragment(self, stream=False, timestamp=None):
         def __transform(x):
@@ -244,18 +251,25 @@ class FragmentResponse(DeliveryResponse):
                 return Literal(x.replace('"', ''), datatype=XSD.string).n3(self.graph(stream).namespace_manager)
             return x
 
+        def __read_contexts():
+            contexts = self.sink.fragment_contexts
+            triple_patterns = {context: eval(context)[1] for context in contexts}
+            for context in self.sink.fragment_contexts:
+                for (s, p, o) in self.graph().get_context(context):
+                    yield triple_patterns[context], s, p, o
+
         if timestamp is None:
             timestamp = calendar.timegm(dt.now().timetuple())
 
-        if stream and self.sink.backed:
-            stream = False
+        from_streaming = stream and not self.sink.backed
 
-        if stream:
+        if from_streaming:
             triples = load_stream_triples(self.sink.fragment_id, timestamp)
             return triples, stream
+        elif stream:
+            return __read_contexts(), from_streaming
 
         _g = self.sink.gp
-        print _g.wire
         gp = [' '.join([__transform(part) for part in tp.split(' ')]) for tp in self.sink.gp]
         where_gp = ' . '.join(gp)
         query = """CONSTRUCT WHERE { %s }""" % where_gp
