@@ -164,7 +164,7 @@ class DeliveryAction(Action):
         reply(graph.serialize(format='turtle'), exchange='sdh',
               routing_key='curator.response.{}'.format(self.request.submitted_by),
               **self.request.broker)
-        if self.sink.delivery != 'ready':
+        if self.sink.delivery is None:
             self.sink.delivery = 'accepted'
 
     def _reply_failure(self, reason=None):
@@ -185,8 +185,8 @@ class DeliveryAction(Action):
         except Exception, e:
             log.warning(e.message)
             self.sink.remove()
-        if self.sink.ready:
-            self.sink.delivery = 'ready'
+        # if self.sink.ready:
+        #     self.sink.delivery = 'ready'
 
 
 def used_channels():
