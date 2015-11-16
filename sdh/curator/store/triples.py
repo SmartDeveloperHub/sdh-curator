@@ -44,19 +44,24 @@ def load_stream_triples(fid, until):
                 (value, ty) = tuple(elm.split('^^'))
                 return Literal(value.replace('"', ''), datatype=URIRef(ty.lstrip('<').rstrip('>')))
 
-        s, p, o = eval(x)
-        return __term(s), __term(p), __term(o)
+        c, s, p, o = eval(x)
+        return c, __term(s), __term(p), __term(o)
 
     for x in r.zrangebyscore('fragments:{}:stream'.format(fid), '-inf', '{}'.format(float(until))):
         yield __triplify(x)
 
 
-def add_stream_triple(fid, (s, p, o), timestamp=None):
+def add_stream_triple(fid, tp, (s, p, o), timestamp=None):
     if timestamp is None:
         timestamp = calendar.timegm(dt.utcnow().timetuple())
-    with r.pipeline() as pipe:
-        pipe.zadd('fragments:{}:stream'.format(fid), timestamp, (s.n3(), p.n3(), o.n3()))
-        pipe.execute()
+    quad = (tp, s.n3(), p.n3(), o.n3())
+    stream_key = 'fragments:{}:stream'.format(fid)
+    not_found = not bool(r.zscore(stream_key, quad))
+    if not_found:
+        with r.pipeline() as pipe:
+            pipe.zadd(stream_key, timestamp, quad)
+            pipe.execute()
+    return not_found
 
 
 store_mode = app.config['STORE']
