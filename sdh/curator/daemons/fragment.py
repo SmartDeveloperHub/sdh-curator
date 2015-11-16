@@ -35,6 +35,7 @@ from sdh.curator.store import r
 from sdh.curator.store.triples import cache as cache, front, add_stream_triple, load_stream_triples
 from sdh.curator.daemons.delivery import build_response
 from redis.lock import Lock
+from rdflib import RDF, RDFS
 
 __author__ = 'Fernando Serena'
 
@@ -43,6 +44,18 @@ agora_host = app.config['AGORA']
 agora_client = Agora(agora_host)
 
 thp = ThreadPoolExecutor(max_workers=4)
+
+fragment_locks = r.keys('fragments:*:lock')
+for flk in fragment_locks:
+    r.delete(flk)
+
+# fragment_streams = r.keys('fragments:*:stream')
+# for fsk in fragment_streams:
+#     r.delete(fsk)
+
+fragment_pullings = r.keys('fragments:*:pulling')
+for fpk in fragment_pullings:
+    r.delete(fpk)
 
 
 class FragmentPlugin(object):
@@ -83,12 +96,17 @@ def __bind_prefixes(source_graph):
     map(lambda (prefix, uri): (cache.bind(prefix, uri), front.bind(prefix, uri)), source_graph.namespaces())
 
 
+def map_variables(tp, mapping):
+    if mapping is None:
+        return tp
+    return tuple(map(lambda x: mapping.get(x, x), tp))
+
 def __consume_quad(fid, (c, s, p, o), graph, sinks=None):
     def __sink_consume():
         for rid in filter(lambda _: isinstance(sinks[_], plugin.sink_class), sinks):
             sink = sinks[rid]
             try:
-                plugin.consume(fid, (c, s, p, o), graph, sink)
+                plugin.consume(fid, (map_variables(c, sink.mapping), s, p, o), graph, sink)
             except Exception as e:
                 sink.remove()
                 yield rid
@@ -125,6 +143,50 @@ def __notify_completion(fid, sinks):
             log.warning(e.message)
 
 
+def __triple_pattern(graph, c):
+    def extract_node_id(node):
+        nid = node
+        if (node, RDF.type, AGORA.Variable) in graph:
+            nid = list(graph.objects(node, RDFS.label)).pop()
+        elif (node, RDF.type, AGORA.Literal) in graph:
+            nid = list(graph.objects(node, AGORA.value)).pop()
+        return nid
+
+    predicate = list(graph.objects(c, AGORA.predicate)).pop()
+    subject_node = list(graph.objects(c, AGORA.subject)).pop()
+    object_node = list(graph.objects(c, AGORA.object)).pop()
+    subject = extract_node_id(subject_node)
+    obj = extract_node_id(object_node)
+
+    return str(subject), predicate.n3(graph.namespace_manager), str(obj)
+
+
+def __replace_fragment(fid):
+    tps = cache.get_context(fid).subjects(RDF.type, AGORA.TriplePattern)
+    for tp in tps:
+        cache.remove_context(cache.get_context(str((fid, __triple_pattern(cache, tp)))))
+    fragment_triples = load_stream_triples(fid, calendar.timegm(dt.now().timetuple()))
+    for c, s, p, o in fragment_triples:
+        cache.get_context(str((fid, c))).add((s, p, o))
+    with r.pipeline() as pipe:
+        pipe.delete('fragments:{}:stream'.format(fid))
+        pipe.execute()
+
+
+def __cache_plan_context(fid, graph):
+    try:
+        cache.remove_context(cache.get_context(fid))
+        fid_context = cache.get_context(fid)
+        tps = graph.subjects(RDF.type, AGORA.TriplePattern)
+        for tp in tps:
+            for (s, p, o) in graph.triples((tp, None, None)):
+                fid_context.add((s, p, o))
+                for t in graph.triples((o, None, None)):
+                    fid_context.add(t)
+    except Exception, e:
+        log.error(e.message)
+
+
 def __pull_fragment(fid):
     def __load_fragment_requests():
         requests_ = r.smembers('fragments:{}:requests'.format(fid))
@@ -145,42 +207,42 @@ def __pull_fragment(fid):
     log.debug('Pulling fragment {}, described by {}...'.format(fid, tps))
     fgm_gen, _, graph = agora_client.get_fragment_generator('{ %s }' % ' . '.join(tps),
                                                             on_load=__on_load_seed)
+
+    triple_patterns = {tpn: __triple_pattern(graph, tpn) for tpn in
+                       graph.subjects(RDF.type, AGORA.TriplePattern)}
+    fragment_contexts = {tpn: (fid, triple_patterns[tpn]) for tpn in triple_patterns}
     __bind_prefixes(graph)
 
     lock_key = 'fragments:{}:lock'.format(fid)
     lock = r.lock(lock_key, lock_class=Lock)
     lock.acquire()
-    cache.remove_context(cache.get_context(fid))
-    with r.pipeline() as pipe:
-        pipe.delete('fragments:{}:stream'.format(fid))
-        pipe.execute()
-    fragment_triples = load_stream_triples(fid, calendar.timegm(dt.now().timetuple()))
-    for ft in fragment_triples:
-        cache.get_context(fid).add(ft)
     with r.pipeline(transaction=True) as p:
         p.multi()
         p.set('fragments:{}:pulling'.format(fid), True)
+        p.delete('fragments:{}:contexts'.format(fid))
+        for tpn in fragment_contexts.keys():
+            p.sadd('fragments:{}:contexts'.format(fid), fragment_contexts[tpn])
         p.execute()
     lock.release()
 
     for (c, s, p, o) in fgm_gen:
-        if (s, p, o) not in cache:
-            cache.get_context(fid).add((s, p, o))
-            lock.acquire()
-            add_stream_triple(fid, (s, p, o))
-            __consume_quad(fid, (c, s, p, o), graph, sinks=r_sinks)
-            lock.release()
+        lock.acquire()
+        if add_stream_triple(fid, triple_patterns[c], (s, p, o)):
+            __consume_quad(fid, (triple_patterns[c], s, p, o), graph, sinks=r_sinks)
+        lock.release()
         if r.scard('fragments:{}:requests'.format(fid)) != len(requests):
             requests, r_sinks = __load_fragment_requests()
 
     lock.acquire()
+    __replace_fragment(fid)
+    __cache_plan_context(fid, graph)
     with r.pipeline(transaction=True) as p:
         p.multi()
         sync_key = 'fragments:{}:sync'.format(fid)
         p.set(sync_key, True)
         p.set('fragments:{}:updated'.format(fid), dt.now())
         p.delete('fragments:{}:pulling'.format(fid))
-        p.expire(sync_key, 10)
+        p.expire(sync_key, 60)
         p.execute()
     __notify_completion(fid, r_sinks)
     lock.release()
@@ -191,8 +253,10 @@ def __collect_fragments():
 
     futures = {}
     while True:
-        for fid in filter(lambda x: r.get('fragments:{}:sync'.format(x)) is None,
-                          r.smembers('fragments')):
+        for fid in filter(
+                lambda x: r.get('fragments:{}:sync'.format(x)) is None and r.get(
+                    'fragments:{}:pulling'.format(x)) is None,
+                r.smembers('fragments')):
             if fid in futures:
                 if futures[fid].done():
                     del futures[fid]
