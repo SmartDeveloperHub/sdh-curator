@@ -69,6 +69,22 @@ class CGraph(Graph):
         return gen_bak
 
 
+def chunks(l, n):
+    """Yield successive n-sized chunks from l."""
+    if n:
+        if getattr(l, '__iter__') is not None:
+            l = l.__iter__()
+        finished = False
+        while not finished:
+            chunk = []
+            try:
+                for _ in range(n):
+                    chunk.append(l.next())
+            except StopIteration:
+                finished = True
+            yield chunk
+
+
 class GraphPattern(set):
     def __init__(self, s=()):
         super(GraphPattern, self).__init__(s)
