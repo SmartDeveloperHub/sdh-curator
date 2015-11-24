@@ -123,9 +123,12 @@ def get_fragments():
 def get_fragment(fid):
     if not r.sismember('fragments', fid):
         raise NotFound('The fragment {} does not exist'.format(fid))
+    pulling = r.get('fragments:{}:pulling'.format(fid))
+    if pulling is None:
+        pulling = 'False'
     fr_dict = {'id': fid, 'pattern': "{ %s }" % ' . '.join(r.smembers('fragments:{}:gp'.format(fid))),
                'updated': r.get('fragments:{}:updated'.format(fid)),
-               'pulling': eval(r.get('fragments:{}:pulling'.format(fid))),
+               'pulling': eval(pulling),
                'requests': list(r.smembers('fragments:{}:requests'.format(fid)))}
     if fr_dict['pulling']:
         fr_dict['triples'] = r.zcard('fragments:{}:stream'.format(fid))
@@ -138,8 +141,8 @@ def get_fragment_triples(fid):
     if not r.sismember('fragments', fid):
         raise NotFound('The fragment {} does not exist'.format(fid))
 
-    if eval(r.get('fragments:{}:pulling'.format(fid))):
-        triples = [u'{} {} {} .'.format(s.n3(), p.n3(), o.n3()) for (s, p, o) in load_stream_triples(fid, '+inf')]
+    if r.get('fragments:{}:pulling'.format(fid)) is not None:
+        triples = [u'{} {} {} .'.format(s.n3(), p.n3(), o.n3()) for (c, s, p, o) in load_stream_triples(fid, '+inf')]
         response = make_response('\n'.join(triples))
         response.headers['content-type'] = 'text/n3'
         return response
