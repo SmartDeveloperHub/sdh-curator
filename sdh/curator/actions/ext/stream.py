@@ -179,7 +179,7 @@ class StreamResponse(FragmentResponse):
 
         if fragment:
             log.debug('Building a stream result for request number {}'.format(self._request_id))
-            for ch in chunks(fragment, 100):
+            for ch in chunks(fragment, 1000):
                 if ch:
                     yield [(map_variables(c, self.sink.mapping), s.n3(), p.n3(), o.n3()) for
                            (c, s, p, o)
