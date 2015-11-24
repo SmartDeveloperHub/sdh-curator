@@ -29,11 +29,14 @@ import calendar
 from datetime import datetime as dt
 from sdh.curator.store import r
 import os
+import shutil
+import shortuuid
+from concurrent.futures import ThreadPoolExecutor
 
 __author__ = 'Fernando Serena'
 
 log = logging.getLogger('sdh.curator.store.triples')
-
+pool = ThreadPoolExecutor(max_workers=8)
 
 def load_stream_triples(fid, until):
     def __triplify(x):
@@ -64,19 +67,63 @@ def add_stream_triple(fid, tp, (s, p, o), timestamp=None):
     return not_found
 
 
+class GraphProvider(object):
+
+    def __init__(self):
+        self.__graph_dict = {}
+
+    @staticmethod
+    def __clean(name):
+        shutil.rmtree('store/query/{}'.format(name))
+
+    def create(self, conjunctive=False):
+        uuid = shortuuid.uuid()
+        if conjunctive:
+            if 'persist' in app.config['STORE']:
+                g = ConjunctiveGraph('Sleepycat')
+                g.open('store/query/{}'.format(uuid), create=True)
+                g.store.graph_aware = False
+            else:
+                g = ConjunctiveGraph()
+                g.store.graph_aware = False
+        else:
+            g = query.get_context(uuid)
+        self.__graph_dict[g] = uuid
+        return g
+
+    def destroy(self, g):
+        if g in self.__graph_dict:
+            if isinstance(g, ConjunctiveGraph):
+                if 'persist' in app.config['STORE']:
+                    g.close()
+                    pool.submit(self.__clean, self.__graph_dict[g])
+                else:
+                    g.remove((None, None, None))
+                    g.close()
+            else:
+                query.remove_context(query.get_context(self.__graph_dict[g]))
+            del self.__graph_dict[g]
+
+
+graph_provider = GraphProvider()
 store_mode = app.config['STORE']
 if 'persist' in store_mode:
     if not os.path.exists('store'):
         os.makedirs('store')
+    if os.path.exists('store/query'):
+        shutil.rmtree('store/query/')
+    if os.path.exists('store/tmp'):
+        shutil.rmtree('store/tmp')
+    os.makedirs('store/query')
     log.info('Loading known triples...')
     cache = ConjunctiveGraph('Sleepycat')
-    front = ConjunctiveGraph('Sleepycat')
     cache.open('store/cache', create=True)
-    front.open('store/front', create=True)
+    query = ConjunctiveGraph('Sleepycat')
+    query.open('store/tmp', create=True)
 else:
     cache = ConjunctiveGraph()
-    front = ConjunctiveGraph()
+    query = ConjunctiveGraph()
 
 cache.store.graph_aware = False
-front.store.graph_aware = False
+query.store.graph_aware = False
 log.info('Ready')
