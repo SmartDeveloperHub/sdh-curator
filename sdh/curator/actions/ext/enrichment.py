@@ -260,7 +260,7 @@ class EnrichmentResponse(FragmentResponse):
     def sink(self):
         return self.__sink
 
-    def build(self):
+    def _build(self):
         log.debug('Building a response to request number {}'.format(self._request_id))
         graph = CGraph()
         resp_node = BNode('#response')
