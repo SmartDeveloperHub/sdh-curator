@@ -21,6 +21,8 @@
   limitations under the License.
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
+import calendar
+import json
 
 import logging
 from datetime import datetime
@@ -28,7 +30,7 @@ import uuid
 
 from sdh.curator.actions.core.fragment import FragmentRequest, FragmentAction, FragmentResponse, FragmentSink
 from sdh.curator.actions.core import CURATOR, TYPES, RDF, XSD, FOAF
-from sdh.curator.actions.core.utils import CGraph
+from sdh.curator.actions.core.utils import CGraph, chunks
 from rdflib import BNode, Literal
 from sdh.curator.actions.core.delivery import CURATOR_UUID
 from sdh.curator.messaging.reply import reply
@@ -37,6 +39,7 @@ from sdh.curator.daemons.fragment import FragmentPlugin
 __author__ = 'Fernando Serena'
 
 log = logging.getLogger('sdh.curator.actions.query')
+
 
 class QueryPlugin(FragmentPlugin):
     @property
@@ -51,6 +54,7 @@ class QueryPlugin(FragmentPlugin):
 
 
 FragmentPlugin.register(QueryPlugin)
+
 
 class QueryRequest(FragmentRequest):
     def __init__(self):
@@ -109,6 +113,8 @@ class QuerySink(FragmentSink):
 
     def _save(self, action):
         super(QuerySink, self)._save(action)
+        if self.backed:
+            self.delivery = 'ready'
 
     def _load(self):
         super(QuerySink, self)._load()
@@ -124,19 +130,26 @@ class QueryResponse(FragmentResponse):
     def sink(self):
         return self.__sink
 
-    def build(self):
-        fragment, _ = self.fragment()
-        graph = CGraph()
+    def _build(self):
+        fragment, _ = self.fragment(result_set=True)
         log.debug('Building a query result for request number {}'.format(self._request_id))
-        for t in fragment:
-            graph.add(t)
-        resp_node = BNode('#response')
-        graph.add((resp_node, RDF.type, CURATOR.QueryResponse))
-        graph.add((resp_node, CURATOR.messageId, Literal(str(uuid.uuid4()), datatype=TYPES.UUID)))
-        graph.add((resp_node, CURATOR.responseTo, Literal(self.sink.message_id, datatype=TYPES.UUID)))
-        graph.add((resp_node, CURATOR.submittedOn, Literal(datetime.now(), datatype=XSD.dateTime)))
-        curator_node = BNode('#curator')
-        graph.add((resp_node, CURATOR.submittedBy, curator_node))
-        graph.add((curator_node, RDF.type, FOAF.Agent))
-        graph.add((curator_node, FOAF.agentId, CURATOR_UUID))
-        yield graph.serialize(format='turtle'), {}
+
+        try:
+            variables = filter(lambda x: not x.startswith('_'), map(lambda v: v.lstrip('?'),
+                                                                    filter(lambda x: x.startswith('?'),
+                                                                           self.sink.preferred_labels)))
+
+            for ch in chunks(fragment, 100):
+                result_rows = []
+                for t in ch:
+                    result_row = {v: t[v] for v in variables}
+                    result_rows.append(result_row)
+                yield json.dumps(result_rows), {'state': 'streaming', 'source': 'store',
+                                                'response_to': self.sink.message_id,
+                                                'submitted_on': calendar.timegm(datetime.now().timetuple()),
+                                                'submitted_by': self.sink.submitted_by}
+        except Exception, e:
+            log.error(e.message)
+            raise
+        finally:
+            yield '', {'state': 'end'}
