@@ -43,6 +43,9 @@ logger.setLevel(log_level)
 logger = logging.getLogger('sdh.curator')
 logger.addHandler(ch)
 logger.setLevel(log_level)
+# logger = logging.getLogger('agora')
+# logger.addHandler(ch)
+# logger.setLevel(log_level)
 
 from sdh.curator import api
 import sdh.curator.messaging
@@ -53,4 +56,4 @@ from sdh.curator.daemons import fragment
 app.logger.info('Ready')
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=app.config['PORT'], debug=True, use_reloader=False)
+    app.run(host='0.0.0.0', port=app.config['PORT'], debug=False, use_reloader=False)
