@@ -27,12 +27,12 @@ import logging
 import time
 
 from abc import abstractmethod, abstractproperty
-from datetime import datetime as dt
+from datetime import datetime as dt, datetime
 from concurrent.futures.thread import ThreadPoolExecutor
 from agora.client.agora import Agora, AGORA
 from sdh.curator.server import app
 from sdh.curator.store import r
-from sdh.curator.store.triples import cache as cache, front, add_stream_triple, load_stream_triples
+from sdh.curator.store.triples import cache as cache, add_stream_triple, load_stream_triples, graph_provider
 from sdh.curator.daemons.delivery import build_response
 from redis.lock import Lock
 from rdflib import RDF, RDFS
@@ -49,13 +49,13 @@ fragment_locks = r.keys('fragments:*:lock')
 for flk in fragment_locks:
     r.delete(flk)
 
-# fragment_streams = r.keys('fragments:*:stream')
-# for fsk in fragment_streams:
-#     r.delete(fsk)
-
 fragment_pullings = r.keys('fragments:*:pulling')
 for fpk in fragment_pullings:
     r.delete(fpk)
+
+fragment_consumers = r.keys('fragments:*:consumers')
+for fck in fragment_consumers:
+    r.delete(fck)
 
 
 class FragmentPlugin(object):
@@ -93,13 +93,14 @@ def __on_load_seed(s, _):
 
 
 def __bind_prefixes(source_graph):
-    map(lambda (prefix, uri): (cache.bind(prefix, uri), front.bind(prefix, uri)), source_graph.namespaces())
+    map(lambda (prefix, uri): cache.bind(prefix, uri), source_graph.namespaces())
 
 
 def map_variables(tp, mapping):
     if mapping is None:
         return tp
     return tuple(map(lambda x: mapping.get(x, x), tp))
+
 
 def __consume_quad(fid, (c, s, p, o), graph, sinks=None):
     def __sink_consume():
@@ -173,6 +174,24 @@ def __replace_fragment(fid):
         pipe.execute()
 
 
+def wait_consumers(fid):
+    def get_consumers():
+        try:
+            return int(r.get('fragments:{}:consumers'.format(fid)))
+        except TypeError:  # The key does not exist yet
+            return 0
+
+    consumers = get_consumers()
+    log.debug('Current fragment {} consumers: {}'.format(fid, consumers))
+    start = datetime.now()
+    while consumers:
+        log.debug('{} active consumers!'.format(consumers))
+        time.sleep(0.1)
+        consumers = get_consumers()
+        # if (datetime.now() - start).seconds > 10:
+        #     break
+
+
 def __cache_plan_context(fid, graph):
     try:
         cache.remove_context(cache.get_context(fid))
@@ -204,9 +223,9 @@ def __pull_fragment(fid):
 
     tps = r.smembers('fragments:{}:gp'.format(fid))
     requests, r_sinks = __load_fragment_requests()
-    log.debug('Pulling fragment {}, described by {}...'.format(fid, tps))
-    fgm_gen, _, graph = agora_client.get_fragment_generator('{ %s }' % ' . '.join(tps),
-                                                            on_load=__on_load_seed)
+    log.info('Pulling fragment {}, described by {}...'.format(fid, tps))
+    fgm_gen, _, graph = agora_client.get_fragment_generator('{ %s }' % ' . '.join(tps), workers=8,
+                                                            provider=graph_provider)
 
     triple_patterns = {tpn: __triple_pattern(graph, tpn) for tpn in
                        graph.subjects(RDF.type, AGORA.TriplePattern)}
@@ -233,6 +252,7 @@ def __pull_fragment(fid):
         if r.scard('fragments:{}:requests'.format(fid)) != len(requests):
             requests, r_sinks = __load_fragment_requests()
 
+    wait_consumers(fid)
     lock.acquire()
     __replace_fragment(fid)
     __cache_plan_context(fid, graph)
