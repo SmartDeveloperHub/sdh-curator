@@ -45,6 +45,8 @@ def callback(ch, method, properties, body):
         print 'End of stream received!'
         channel.stop_consuming()
     else:
+        source = properties.headers.get('source', None)
+        print source,
         print body
 
 

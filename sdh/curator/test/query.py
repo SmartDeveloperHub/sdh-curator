@@ -41,7 +41,13 @@ accepted = False
 
 
 def callback(ch, method, properties, body):
-    print body
+    if 'state' in properties.headers:
+        if properties.headers['state'] == 'end':
+            channel.stop_consuming()
+            return
+    print 'chunk headers: ', properties.headers
+    for _ in eval(body):
+        print _
 
 
 def accept_callback(ch, method, properties, body):
@@ -63,7 +69,7 @@ exchange = ''
 
 graph = Graph()
 script_dir = os.path.dirname(__file__)
-with open(os.path.join(script_dir, 'query.ttl')) as f:
+with open(os.path.join(script_dir, 'query_usernames.ttl')) as f:
     graph.parse(file=f, format='turtle')
 
 

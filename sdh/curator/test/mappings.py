@@ -22,4 +22,18 @@
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
 
+from sdh.curator.actions.core.utils import GraphPattern
+
 __author__ = 'Fernando Serena'
+
+
+gp1 = GraphPattern()
+gp1.add('?a scm:hasBranch ?b')
+
+gp2 = GraphPattern()
+gp2.add('?s a scm:Repository')
+gp2.add('?s scm:hasBranch ?b')
+gp2.add('?b doap:name ?n')
+
+mapping = gp2.mapping(gp1)
+print mapping

@@ -19,7 +19,7 @@
 
 ##-- EXAMPLE ENRICHMENT REQUEST ----------------------------------------------##
 
-<#request> a curator:StreamRequest ;
+<#request> a curator:QueryRequest ;
   curator:messageId "00000000-0000-0000-0000-000000000005"^^types:UUID ;
   curator:submittedBy <#connector> ;
   curator:submittedOn "2015-09-29T09:30:10+01:00"^^xsd:dateTime ;
@@ -38,14 +38,9 @@
   amqp:port "5672"^^types:Port ;
   amqp:virtualHost ""^^types:Path .
 
-_:repository a curator:Variable ;
-  curator:label "?s" ;
-  doap:developer  _:dev ;
-  doap:name "maven-hpi-plugin" .
-
-_:dev a curator:Variable ;
-  curator:label "?d" ;
-  foaf:name _:name .
-
-_:name a curator:Variable ;
-  curator:label "?n" .
+[] a curator:Variable ;
+  curator:label "?b" ;
+  ci:hasExecution [
+     a curator:Variable ;
+     curator:label "?e"
+  ] .

@@ -31,7 +31,6 @@
 <#deliveryChannel> a curator:DeliveryChannel ;
   amqp:broker <#broker> ;
   amqp:exchangeName ""^^types:Name ;
-  amqp:queueName ""^^types:Name ;
   amqp:routingKey ""^^types:Name .
 
 <#broker> a amqp:Broker ;
@@ -40,8 +39,20 @@
   amqp:virtualHost ""^^types:Path .
 
 _:repository a curator:Variable ;
+  curator:label "?s" ;
   doap:developer  _:dev ;
-  doap:name "jenkins" .
+  doap:name "maven-hpi-plugin" .
 
 _:dev a curator:Variable ;
-  foaf:name ?n .
+  curator:label "?d" ;
+  foaf:name _:name ;
+  foaf:img _:img .
+
+_:name a curator:Variable ;
+  curator:label "?nf" .
+
+_:img a curator:Variable ;
+  foaf:depicts _:avatar .
+
+_:avatar a curator:Variable ;
+  curator:label "?ima" .
