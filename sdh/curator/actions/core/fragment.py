@@ -32,7 +32,7 @@ from sdh.curator.actions.core.utils import CGraph, GraphPattern, parse_bool
 from sdh.curator.actions.core import CURATOR, RDF
 from sdh.curator.daemons.fragment import agora_client
 from sdh.curator.store import r
-from sdh.curator.store.triples import cache, front, load_stream_triples
+from sdh.curator.store.triples import cache, load_stream_triples
 from datetime import datetime as dt
 
 __author__ = 'Fernando Serena'
@@ -116,6 +116,7 @@ class FragmentSink(DeliverySink):
         super(FragmentSink, self).__init__()
         self._graph_pattern = GraphPattern()
         self._variables_dict = {}
+        self._preferred_labels = []
         self._fragment_id = None
 
     @staticmethod
@@ -131,6 +132,8 @@ class FragmentSink(DeliverySink):
             preferred_label = labels.pop() if len(labels) == 1 else ''
             label = preferred_label if preferred_label.startswith('?') else '?v{}'.format(i)
             self._variables_dict[v] = label
+            if preferred_label:
+                self._preferred_labels.append(str(preferred_label))
         for v in self._variables_dict.keys():
             v_in = action.request.pattern.subject_predicates(v)
             for (s, pr) in v_in:
@@ -158,16 +161,16 @@ class FragmentSink(DeliverySink):
         super(FragmentSink, self)._save(action)
         self._build_graph_pattern(action)
         fragment_mapping = self.__check_gp()
-        mapping = None
         exists = fragment_mapping is not None
         if not exists:
             self._fragment_id = str(uuid())
             self._pipe.sadd('fragments', self._fragment_id)
             self._pipe.sadd('fragments:{}:gp'.format(self._fragment_id), *self._graph_pattern)
+            mapping = {str(k): str(k) for k in self._variables_dict.values()}
         else:
             self._fragment_id, mapping = fragment_mapping
-            self._pipe.hset(self._request_key, 'mapping', mapping)
-
+        self._pipe.hset(self._request_key, 'mapping', mapping)
+        self._pipe.hset(self._request_key, 'preferred_labels', self._preferred_labels)
         self._pipe.sadd('fragments:{}:requests'.format(self._fragment_id), self._request_id)
         self._pipe.hset('{}'.format(self._request_key), 'fragment_id', self._fragment_id)
         self._pipe.hset('{}'.format(self._request_key), 'pattern', ' . '.join(self._graph_pattern))
@@ -192,6 +195,10 @@ class FragmentSink(DeliverySink):
         if mapping is not None:
             mapping = eval(mapping)
         self._dict_fields['mapping'] = mapping
+        preferred_labels = self._dict_fields.get('preferred_labels', None)
+        if preferred_labels is not None:
+            preferred_labels = eval(preferred_labels)
+        self._dict_fields['preferred_labels'] = preferred_labels
         try:
             del self._dict_fields['fragment_id']
         except KeyError:
@@ -207,7 +214,7 @@ class FragmentSink(DeliverySink):
 
     def map(self, v):
         if self.mapping is not None:
-            return self.mapping[v]
+            return self.mapping.get(v, v)
         return v
 
     @property
@@ -233,9 +240,22 @@ class FragmentResponse(DeliveryResponse):
     def __init__(self, rid):
         super(FragmentResponse, self).__init__(rid)
 
-    @abstractmethod
     def build(self):
         super(FragmentResponse, self).build()
+        with r.pipeline() as p:
+            try:
+                p.incr('fragments:{}:consumers'.format(self.sink.fragment_id))
+                p.execute()
+                generator = self._build()
+                for response in generator:
+                    yield response
+            finally:
+                p.decr('fragments:{}:consumers'.format(self.sink.fragment_id))
+                p.execute()
+
+    @abstractmethod
+    def _build(self):
+        pass
 
     @staticmethod
     def query(query_object):
@@ -245,11 +265,16 @@ class FragmentResponse(DeliveryResponse):
     def graph(stream=False):
         return cache
 
-    def fragment(self, stream=False, timestamp=None):
+    def fragment(self, stream=False, timestamp=None, result_set=False):
         def __transform(x):
             if x.startswith('"'):
                 return Literal(x.replace('"', ''), datatype=XSD.string).n3(self.graph(stream).namespace_manager)
             return x
+
+        def __build_query_pattern(x):
+            if '"' in x:
+                return '{ %s }' % x
+            return 'OPTIONAL { %s }' % x
 
         def __read_contexts():
             contexts = self.sink.fragment_contexts
@@ -270,8 +295,12 @@ class FragmentResponse(DeliveryResponse):
             return __read_contexts(), from_streaming
 
         _g = self.sink.gp
-        gp = [' '.join([__transform(part) for part in tp.split(' ')]) for tp in self.sink.gp]
-        where_gp = ' . '.join(gp)
-        query = """CONSTRUCT WHERE { %s }""" % where_gp
+        gp = [' '.join([__transform(self.sink.map(part)) for part in tp.split(' ')]) for tp in self.sink.gp]
+        if result_set:
+            where_gp = ' '.join(map(__build_query_pattern, gp))
+            query = """SELECT %s WHERE { %s }""" % (' '.join(self.sink.preferred_labels), where_gp)
+        else:
+            where_gp = ' . '.join(gp)
+            query = """CONSTRUCT WHERE { %s }""" % where_gp
         result = self.graph(stream).query(query)
-        return list(result), stream
+        return result, stream
