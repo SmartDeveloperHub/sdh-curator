@@ -55,7 +55,7 @@ def reply(message, exchange=None, routing_key=None, headers=None, host=RABBIT['h
 
         sent = channel.basic_publish(exchange=exchange,
                                      routing_key=routing_key,
-                                     body=message,
+                                     body=str(message),
                                      properties=BasicProperties(headers=headers or {}),
                                      mandatory=True)
 
