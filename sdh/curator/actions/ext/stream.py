@@ -26,9 +26,9 @@ import calendar
 import logging
 
 from sdh.curator.actions.core.fragment import FragmentRequest, FragmentAction, FragmentResponse, FragmentSink
-from sdh.curator.actions.core.utils import parse_bool
+from sdh.curator.actions.core.utils import parse_bool, chunks
 from sdh.curator.messaging.reply import reply
-from sdh.curator.daemons.fragment import FragmentPlugin
+from sdh.curator.daemons.fragment import FragmentPlugin, map_variables
 from sdh.curator.store import r
 from redis.lock import Lock
 from datetime import datetime as dt
@@ -49,15 +49,16 @@ class StreamPlugin(FragmentPlugin):
             return
         if sink.stream:
             log.debug('[{}] Streaming fragment triple...'.format(sink.request_id))
-            reply(u'ST {} {} {} .'.format(s.n3(), p.n3(), o.n3()),
+            reply((c, s.n3(), p.n3(), o.n3()), headers={'source': 'stream'},
                   **sink.recipient)
 
     def complete(self, fid, *args):
         sink = args[0]
-        if sink.delivery == 'streaming':
-            sink.delivery = 'sent'
-            reply('', headers={'state': 'end'}, **sink.recipient)
         sink.stream = False
+        if sink.delivery == 'streaming':
+            log.debug('Sending end stream signal after {}'.format(sink.delivery))
+            sink.delivery = 'sent'
+            reply((), headers={'state': 'end'}, **sink.recipient)
 
 
 FragmentPlugin.register(StreamPlugin)
@@ -147,14 +148,13 @@ class StreamResponse(FragmentResponse):
     def sink(self):
         return self.__sink
 
-    def build(self):
+    def _build(self):
         timestamp = calendar.timegm(dt.now().timetuple())
-        lock = r.lock('fragment:{}:lock'.format(self.sink.fragment_id), lock_class=Lock)
+        lock = r.lock('fragments:{}:lock'.format(self.sink.fragment_id), lock_class=Lock)
         lock.acquire()
         fragment = None
         try:
             fragment, stream = self.fragment(stream=True, timestamp=timestamp)
-            fragment = list(fragment)   # Ensure stream (redis sorted set) before it is updated
             if stream:
                 self.sink.stream = True
                 if fragment:
@@ -167,7 +167,8 @@ class StreamResponse(FragmentResponse):
                     log.debug('Fragment retrieved from cache for request number {}'.format(self._request_id))
                 else:
                     self.sink.delivery = 'sent'
-                    yield '', {'state': 'end'}
+                    log.debug('Sending end stream signal since there is no fragment and stream is disabled')
+                    yield (), {'state': 'end'}
                 self.sink.stream = False
         except Exception as e:
             log.warning(e.message)
@@ -178,17 +179,19 @@ class StreamResponse(FragmentResponse):
 
         if fragment:
             log.debug('Building a stream result for request number {}'.format(self._request_id))
-            for (s, p, o) in fragment:
-                yield u'TS {} {} {} .'.format(s.n3(), p.n3(), o.n3()), {}   # (body, headers)
+            for ch in chunks(fragment, 100):
+                if ch:
+                    yield [(map_variables(c, self.sink.mapping), s.n3(), p.n3(), o.n3()) for
+                           (c, s, p, o)
+                           in ch], {'source': 'store'}
 
             lock.acquire()
             try:
                 if self.sink.delivery == 'pushing' or (self.sink.delivery == 'mixing' and not self.sink.stream):
                     self.sink.delivery = 'sent'
-                    yield '', {'state': 'end'}
+                    log.debug('Sending end stream signal after {}'.format(self.sink.delivery))
+                    yield (), {'state': 'end'}
                 elif self.sink.delivery == 'mixing' and self.sink.stream:
                     self.sink.delivery = 'streaming'
             finally:
                 lock.release()
-
-
