@@ -33,7 +33,7 @@ class Config(object):
     }
     PORT = 5002
     RABBIT = {
-        'host': 'localhost',
+        'host': '138.4.249.224',
         'port': 5672
     }
 
@@ -46,8 +46,8 @@ class DevelopmentConfig(Config):
         'db': 4,
         'port': 6379
     }
-    STORE = 'memory'
-    AGORA = 'http://localhost:9001'
+    STORE = 'persist'
+    AGORA = 'http://138.4.249.224:9009'
 
 
 class TestingConfig(Config):

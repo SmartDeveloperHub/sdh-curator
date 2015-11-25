@@ -43,9 +43,9 @@ logger.setLevel(log_level)
 logger = logging.getLogger('sdh.curator')
 logger.addHandler(ch)
 logger.setLevel(log_level)
-# logger = logging.getLogger('agora')
-# logger.addHandler(ch)
-# logger.setLevel(log_level)
+logger = logging.getLogger('agora')
+logger.addHandler(ch)
+logger.setLevel(log_level)
 
 from sdh.curator import api
 import sdh.curator.messaging
