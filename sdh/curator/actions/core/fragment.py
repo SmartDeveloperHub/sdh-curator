@@ -34,6 +34,7 @@ from sdh.curator.daemons.fragment import agora_client
 from sdh.curator.store import r
 from sdh.curator.store.triples import cache, load_stream_triples
 from datetime import datetime as dt
+from redis.lock import Lock
 
 __author__ = 'Fernando Serena'
 
@@ -242,16 +243,27 @@ class FragmentResponse(DeliveryResponse):
 
     def build(self):
         super(FragmentResponse, self).build()
-        with r.pipeline() as p:
-            try:
-                p.incr('fragments:{}:consumers'.format(self.sink.fragment_id))
-                p.execute()
-                generator = self._build()
-                for response in generator:
-                    yield response
-            finally:
-                p.decr('fragments:{}:consumers'.format(self.sink.fragment_id))
-                p.execute()
+        lock_consume_key = 'fragments:{}:lock:consume'.format(self.sink.fragment_id)
+        c_lock = r.lock(lock_consume_key, lock_class=Lock)
+        c_lock.acquire()
+        generator = self._build()
+        try:
+            for response in generator:
+                yield response
+        except Exception, e:
+            log.error(e.message)
+        finally:
+            c_lock.release()
+        # with r.pipeline() as p:
+        #     try:
+        #         p.incr('fragments:{}:consumers'.format(self.sink.fragment_id))
+        #         p.execute()
+        #         generator = self._build()
+        #         for response in generator:
+        #             yield response
+        #     finally:
+        #         p.decr('fragments:{}:consumers'.format(self.sink.fragment_id))
+        #         p.execute()
 
     @abstractmethod
     def _build(self):

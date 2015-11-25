@@ -45,7 +45,7 @@ agora_client = Agora(agora_host)
 
 thp = ThreadPoolExecutor(max_workers=4)
 
-fragment_locks = r.keys('fragments:*:lock')
+fragment_locks = r.keys('*lock*')
 for flk in fragment_locks:
     r.delete(flk)
 
@@ -175,25 +175,6 @@ def __replace_fragment(fid):
         pipe.delete('fragments:{}:stream'.format(fid))
         pipe.execute()
 
-
-def wait_consumers(fid):
-    def get_consumers():
-        try:
-            return int(r.get('fragments:{}:consumers'.format(fid)))
-        except TypeError:  # The key does not exist yet
-            return 0
-
-    consumers = get_consumers()
-    log.debug('Current fragment {} consumers: {}'.format(fid, consumers))
-    start = datetime.now()
-    while consumers:
-        log.debug('{} active consumers!'.format(consumers))
-        time.sleep(0.1)
-        consumers = get_consumers()
-        # if (datetime.now() - start).seconds > 10:
-        #     break
-
-
 def __cache_plan_context(fid, graph):
     try:
         cache.remove_context(cache.get_context(fid))
@@ -226,7 +207,7 @@ def __pull_fragment(fid):
     tps = r.smembers('fragments:{}:gp'.format(fid))
     requests, r_sinks = __load_fragment_requests()
     log.info('Pulling fragment {}, described by {}...'.format(fid, tps))
-    fgm_gen, _, graph = agora_client.get_fragment_generator('{ %s }' % ' . '.join(tps), workers=8,
+    fgm_gen, _, graph = agora_client.get_fragment_generator('{ %s }' % ' . '.join(tps), workers=4,
                                                             provider=graph_provider)
 
     triple_patterns = {tpn: __triple_pattern(graph, tpn) for tpn in
@@ -237,6 +218,11 @@ def __pull_fragment(fid):
     lock_key = 'fragments:{}:lock'.format(fid)
     lock = r.lock(lock_key, lock_class=Lock)
     lock.acquire()
+
+    lock_consume_key = 'fragments:{}:lock:consume'.format(fid)
+    c_lock = r.lock(lock_consume_key, lock_class=Lock)
+    c_lock.acquire()
+
     with r.pipeline(transaction=True) as p:
         p.multi()
         p.set('fragments:{}:pulling'.format(fid), True)
@@ -246,6 +232,9 @@ def __pull_fragment(fid):
         p.execute()
     lock.release()
 
+    c_lock.release()
+
+    n_triples = 0
     for (c, s, p, o) in fgm_gen:
         lock.acquire()
         if add_stream_triple(fid, triple_patterns[c], (s, p, o)):
@@ -253,19 +242,23 @@ def __pull_fragment(fid):
         lock.release()
         if r.scard('fragments:{}:requests'.format(fid)) != len(requests):
             requests, r_sinks = __load_fragment_requests()
+        n_triples += 1
 
-    wait_consumers(fid)
+    log.debug('{} triples retrieved for fragment {}'.format(n_triples, fid))
+
     lock.acquire()
+    c_lock.acquire()
     __replace_fragment(fid)
     __cache_plan_context(fid, graph)
     with r.pipeline(transaction=True) as p:
         p.multi()
         sync_key = 'fragments:{}:sync'.format(fid)
         p.set(sync_key, True)
+        p.expire(sync_key, 60)
         p.set('fragments:{}:updated'.format(fid), dt.now())
         p.delete('fragments:{}:pulling'.format(fid))
-        p.expire(sync_key, 60)
         p.execute()
+    c_lock.release()
     __notify_completion(fid, r_sinks)
     lock.release()
 
