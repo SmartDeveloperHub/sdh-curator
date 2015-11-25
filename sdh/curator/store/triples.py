@@ -22,7 +22,7 @@
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
 
-from rdflib import ConjunctiveGraph, URIRef, Literal
+from rdflib import ConjunctiveGraph, URIRef, Literal, XSD
 from sdh.curator.server import app
 import logging
 import calendar
@@ -38,14 +38,17 @@ __author__ = 'Fernando Serena'
 log = logging.getLogger('sdh.curator.store.triples')
 pool = ThreadPoolExecutor(max_workers=8)
 
+
 def load_stream_triples(fid, until):
     def __triplify(x):
         def __term(elm):
             if elm.startswith('<'):
                 return URIRef(elm.lstrip('<').rstrip('>'))
-            else:
+            elif '^^' in elm:
                 (value, ty) = tuple(elm.split('^^'))
                 return Literal(value.replace('"', ''), datatype=URIRef(ty.lstrip('<').rstrip('>')))
+            else:
+                return Literal(elm.replace('"', ''), datatype=XSD.string)
 
         c, s, p, o = eval(x)
         return c, __term(s), __term(p), __term(o)
