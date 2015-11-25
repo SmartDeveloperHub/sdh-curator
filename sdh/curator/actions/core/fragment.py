@@ -261,9 +261,11 @@ class FragmentResponse(DeliveryResponse):
     def query(query_object):
         return cache.query(query_object)
 
-    @staticmethod
-    def graph(stream=False):
-        return cache
+    def graph(self, data=False):
+        if data:
+            return cache.get_context('/' + self.sink.fragment_id)
+        else:
+            return cache
 
     def fragment(self, stream=False, timestamp=None, result_set=False):
         def __transform(x):
@@ -294,13 +296,14 @@ class FragmentResponse(DeliveryResponse):
         elif stream:
             return __read_contexts(), from_streaming
 
-        _g = self.sink.gp
         gp = [' '.join([__transform(self.sink.map(part)) for part in tp.split(' ')]) for tp in self.sink.gp]
         if result_set:
-            where_gp = ' '.join(map(__build_query_pattern, gp))
+            # where_gp = ' '.join(map(__build_query_pattern, gp))
+            where_gp = ' . '.join(gp)
+            # TODO: Consider using selective OPTIONAL clauses
             query = """SELECT %s WHERE { %s }""" % (' '.join(self.sink.preferred_labels), where_gp)
         else:
             where_gp = ' . '.join(gp)
             query = """CONSTRUCT WHERE { %s }""" % where_gp
-        result = self.graph(stream).query(query)
+        result = self.graph(data=True).query(query)
         return result, stream

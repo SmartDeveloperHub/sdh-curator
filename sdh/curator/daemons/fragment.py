@@ -164,11 +164,13 @@ def __triple_pattern(graph, c):
 
 def __replace_fragment(fid):
     tps = cache.get_context(fid).subjects(RDF.type, AGORA.TriplePattern)
+    cache.remove_context(cache.get_context('/' + fid))
     for tp in tps:
         cache.remove_context(cache.get_context(str((fid, __triple_pattern(cache, tp)))))
     fragment_triples = load_stream_triples(fid, calendar.timegm(dt.now().timetuple()))
     for c, s, p, o in fragment_triples:
         cache.get_context(str((fid, c))).add((s, p, o))
+        cache.get_context('/' + fid).add((s, p, o))
     with r.pipeline() as pipe:
         pipe.delete('fragments:{}:stream'.format(fid))
         pipe.execute()
