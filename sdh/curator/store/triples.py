@@ -36,7 +36,7 @@ from concurrent.futures import ThreadPoolExecutor
 __author__ = 'Fernando Serena'
 
 log = logging.getLogger('sdh.curator.store.triples')
-pool = ThreadPoolExecutor(max_workers=8)
+pool = ThreadPoolExecutor(max_workers=4)
 
 
 def load_stream_triples(fid, until):
