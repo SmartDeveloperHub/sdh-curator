@@ -36,6 +36,7 @@ from sdh.curator.store.triples import cache as cache, add_stream_triple, load_st
 from sdh.curator.daemons.delivery import build_response
 from redis.lock import Lock
 from rdflib import RDF, RDFS
+import random
 
 __author__ = 'Fernando Serena'
 
@@ -207,7 +208,7 @@ def __pull_fragment(fid):
     tps = r.smembers('fragments:{}:gp'.format(fid))
     requests, r_sinks = __load_fragment_requests()
     log.info('Pulling fragment {}, described by {}...'.format(fid, tps))
-    fgm_gen, _, graph = agora_client.get_fragment_generator('{ %s }' % ' . '.join(tps), workers=4,
+    fgm_gen, _, graph = agora_client.get_fragment_generator('{ %s }' % ' . '.join(tps), workers=2,
                                                             provider=graph_provider)
 
     triple_patterns = {tpn: __triple_pattern(graph, tpn) for tpn in
@@ -254,7 +255,7 @@ def __pull_fragment(fid):
         p.multi()
         sync_key = 'fragments:{}:sync'.format(fid)
         p.set(sync_key, True)
-        p.expire(sync_key, 60)
+        p.expire(sync_key, random.randint(60, 100))
         p.set('fragments:{}:updated'.format(fid), dt.now())
         p.delete('fragments:{}:pulling'.format(fid))
         p.execute()

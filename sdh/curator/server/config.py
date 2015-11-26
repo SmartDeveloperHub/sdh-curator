@@ -31,11 +31,7 @@ class Config(object):
     STORE_PATHS = {
         'graph': 'graph_store'
     }
-    PORT = 5002
-    RABBIT = {
-        'host': '138.4.249.224',
-        'port': 5672
-    }
+    PORT = 5007
 
 
 class DevelopmentConfig(Config):
@@ -48,6 +44,10 @@ class DevelopmentConfig(Config):
     }
     STORE = 'persist'
     AGORA = 'http://138.4.249.224:9009'
+    RABBIT = {
+        'host': 'localhost',
+        'port': 5672
+    }
 
 
 class TestingConfig(Config):
@@ -60,14 +60,23 @@ class TestingConfig(Config):
     }
     TESTING = True
     STORE = 'memory'
+    RABBIT = {
+        'host': 'localhost',
+        'port': 5672
+    }
 
 
 class ProductionConfig(Config):
     DEBUG = False
-    LOG = logging.INFO
+    LOG = logging.DEBUG
     REDIS = {
-        'host': 'redis',
+        'host': 'localhost',
         'db': 4,
         'port': 6379
     }
     STORE = 'persist'
+    AGORA = 'http://localhost:9009'
+    RABBIT = {
+        'host': '138.4.249.224',
+        'port': 5672
+    }
