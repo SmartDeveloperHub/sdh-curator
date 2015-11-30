@@ -28,17 +28,20 @@ from shortuuid import uuid
 from abc import ABCMeta, abstractmethod
 from rdflib import Literal, XSD, URIRef
 from sdh.curator.actions.core.delivery import DeliveryRequest, DeliveryAction, DeliveryResponse, DeliverySink
-from sdh.curator.actions.core.utils import CGraph, GraphPattern, parse_bool
+from sdh.curator.actions.core.utils import CGraph, GraphPattern
 from sdh.curator.actions.core import CURATOR, RDF
-from sdh.curator.daemons.fragment import agora_client
+from agora.client.agora import Agora, AGORA
 from sdh.curator.store import r
 from sdh.curator.store.triples import cache, load_stream_triples
+from sdh.curator.server import app
 from datetime import datetime as dt
 from redis.lock import Lock
 
 __author__ = 'Fernando Serena'
 
 log = logging.getLogger('sdh.curator.actions.fragment')
+agora_conf = app.config['AGORA']
+agora_client = Agora('http://{}:{}'.format(agora_conf['host'], agora_conf['port']))
 fragment_locks = {}
 
 
