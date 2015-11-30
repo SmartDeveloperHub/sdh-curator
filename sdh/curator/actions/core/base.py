@@ -39,7 +39,7 @@ log = logging.getLogger('sdh.curator.actions.base')
 def _fullname(f):
     def wrapper():
         clz = f()
-        return clz.__module__ + '.' + clz.__name__
+        return clz.__module__.replace('sdh.curator.actions.ext.', '') + '.' + clz.__name__
 
     return wrapper
 
