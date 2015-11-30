@@ -25,6 +25,7 @@ import calendar
 from threading import Thread
 import logging
 import time
+import traceback
 
 from abc import abstractmethod, abstractproperty
 from datetime import datetime as dt, datetime
@@ -198,6 +199,7 @@ def __pull_fragment(fid):
             try:
                 sinks_[rid] = build_response(rid).sink
             except Exception, e:
+                traceback.print_exc()
                 log.warning(e.message)
                 with r.pipeline(transaction=True) as p:
                     p.multi()

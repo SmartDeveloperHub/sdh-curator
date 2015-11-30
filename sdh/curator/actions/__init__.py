@@ -31,24 +31,29 @@ from sdh.curator.actions.core.base import Action
 __author__ = 'Fernando Serena'
 
 log = logging.getLogger('sdh.curator.actions')
+action_modules = {}
+# def load_module(name):
+#     (importer, name, _) = action_modules[name]
+#     loader = importer.find_module(name)
+#     file_path = loader.get_filename()
+#     mod_name, file_ext = os.path.splitext(os.path.split(file_path)[-1])
+#     py_mod = None
+#     if file_ext.lower() == '.py':
+#         py_mod = imp.load_source(mod_name, file_path)
+#     elif file_ext.lower() == '.pyc':
+#         py_mod = imp.load_compiled(mod_name, file_path)
+#
+#     action_modules[name] = py_mod
 
+# action_modules = {x[1]: x for x in pkgutil.iter_modules(path=['sdh/curator/actions/ext'])}
+# for module_name in action_modules:
+#     load_module(module_name)
 
-def load_module(name):
-    (importer, name, _) = action_modules[name]
-    loader = importer.find_module(name)
-    file_path = loader.get_filename()
-    mod_name, file_ext = os.path.splitext(os.path.split(file_path)[-1])
-    py_mod = None
-    if file_ext.lower() == '.py':
-        py_mod = imp.load_source(mod_name, file_path)
-    elif file_ext.lower() == '.pyc':
-        py_mod = imp.load_compiled(mod_name, file_path)
+from sdh.curator.actions.ext import query, stream, enrichment
 
-    action_modules[name] = py_mod
-
-action_modules = {x[1]: x for x in pkgutil.iter_modules(path=['sdh/curator/actions/ext'])}
-for module_name in action_modules:
-    load_module(module_name)
+action_modules['query'] = query
+action_modules['stream'] = stream
+action_modules['enrichment'] = enrichment
 
 
 def search_module(module, predicate, limit=1):

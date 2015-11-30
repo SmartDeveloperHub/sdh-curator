@@ -26,6 +26,7 @@ from threading import Thread
 from sdh.curator.store import r
 from concurrent.futures.thread import ThreadPoolExecutor
 from sdh.curator.messaging.reply import reply
+import traceback
 
 __author__ = 'Fernando Serena'
 
@@ -62,10 +63,12 @@ def __deliver_response(rid):
         log.error(e.message)
         # A response couldn't be created
     except EnvironmentError, e:
+        traceback.print_exc()
         log.warning(e.message)
         if response is not None:
             response.sink.remove()
     except Exception, e:
+        traceback.print_exc()
         log.warning(e.message)
 
 
