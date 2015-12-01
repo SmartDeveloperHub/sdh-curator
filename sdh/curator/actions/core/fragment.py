@@ -41,7 +41,7 @@ __author__ = 'Fernando Serena'
 
 log = logging.getLogger('sdh.curator.actions.fragment')
 agora_conf = app.config['AGORA']
-agora_client = Agora('http://{}:{}'.format(agora_conf['host'], agora_conf['port']))
+agora_client = Agora(**agora_conf)
 fragment_locks = {}
 
 
