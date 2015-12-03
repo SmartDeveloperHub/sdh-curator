@@ -228,8 +228,12 @@ def __pull_fragment(fid):
     tps = r.smembers('fragments:{}:gp'.format(fid))
     requests, r_sinks = __load_fragment_requests(fid)
     log.info('Pulling fragment {}, described by {}...'.format(fid, tps))
-    fgm_gen, _, graph = agora_client.get_fragment_generator('{ %s }' % ' . '.join(tps), workers=2,
-                                                            provider=graph_provider)
+    try:
+        fgm_gen, _, graph = agora_client.get_fragment_generator('{ %s }' % ' . '.join(tps), workers=2,
+                                                                provider=graph_provider)
+    except Exception:
+        log.error('Agora is not available')
+        return
 
     # There is no search plan to execute
     if not list(graph.subjects(RDF.type, AGORA.SearchTree)):

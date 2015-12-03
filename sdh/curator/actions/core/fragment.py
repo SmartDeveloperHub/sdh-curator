@@ -50,9 +50,12 @@ class FragmentRequest(DeliveryRequest):
         super(FragmentRequest, self).__init__()
         self.__pattern_graph = CGraph()
         self.__pattern_graph.bind('curator', CURATOR)
-        prefixes = agora_client.prefixes
-        for p in prefixes:
-            self.__pattern_graph.bind(p, prefixes[p])
+        try:
+            prefixes = agora_client.prefixes
+            for p in prefixes:
+                self.__pattern_graph.bind(p, prefixes[p])
+        except Exception, e:
+            raise EnvironmentError(e.message)
 
     def _extract_content(self):
         super(FragmentRequest, self)._extract_content()
