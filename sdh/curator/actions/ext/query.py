@@ -142,12 +142,14 @@ class QueryResponse(FragmentResponse):
             for ch in chunks(fragment, 100):
                 result_rows = []
                 for t in ch:
-                    result_row = {v: t[v] for v in variables}
-                    result_rows.append(result_row)
-                yield json.dumps(result_rows), {'state': 'streaming', 'source': 'store',
-                                                'response_to': self.sink.message_id,
-                                                'submitted_on': calendar.timegm(datetime.now().timetuple()),
-                                                'submitted_by': self.sink.submitted_by}
+                    if any(t):
+                        result_row = {v: t[v] for v in variables}
+                        result_rows.append(result_row)
+                if result_rows:
+                    yield json.dumps(result_rows), {'state': 'streaming', 'source': 'store',
+                                                    'response_to': self.sink.message_id,
+                                                    'submitted_on': calendar.timegm(datetime.now().timetuple()),
+                                                    'submitted_by': self.sink.submitted_by}
         except Exception, e:
             log.error(e.message)
             raise
