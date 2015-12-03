@@ -190,27 +190,51 @@ def __cache_plan_context(fid, graph):
         log.error(e.message)
 
 
+def __remove_fragment(fid):
+    log.debug('Waiting to remove fragment {}...'.format(fid))
+    lock_key = 'fragments:{}:lock'.format(fid)
+    lock = r.lock(lock_key, lock_class=Lock)
+    lock.acquire()
+
+    with r.pipeline(transaction=True) as p:
+        requests, r_sinks = __load_fragment_requests(fid)
+        __notify_completion(fid, r_sinks)
+        fragment_keys = r.keys('fragments:{}*'.format(fid))
+        map(lambda k: p.delete(k), fragment_keys)
+        p.srem('fragments', fid)
+        p.execute()
+
+    log.info('Fragment {} has been removed'.format(fid))
+
+
+def __load_fragment_requests(fid):
+    requests_ = r.smembers('fragments:{}:requests'.format(fid))
+    sinks_ = {}
+    for rid in requests_:
+        try:
+            sinks_[rid] = build_response(rid).sink
+        except Exception, e:
+            traceback.print_exc()
+            log.warning(e.message)
+            with r.pipeline(transaction=True) as p:
+                p.multi()
+                p.srem('fragments:{}:requests'.format(fid), rid)
+                p.execute()
+    return requests_, sinks_
+
+
 def __pull_fragment(fid):
-    def __load_fragment_requests():
-        requests_ = r.smembers('fragments:{}:requests'.format(fid))
-        sinks_ = {}
-        for rid in requests_:
-            try:
-                sinks_[rid] = build_response(rid).sink
-            except Exception, e:
-                traceback.print_exc()
-                log.warning(e.message)
-                with r.pipeline(transaction=True) as p:
-                    p.multi()
-                    p.srem('fragments:{}:requests'.format(fid), rid)
-                    p.execute()
-        return requests_, sinks_
 
     tps = r.smembers('fragments:{}:gp'.format(fid))
-    requests, r_sinks = __load_fragment_requests()
+    requests, r_sinks = __load_fragment_requests(fid)
     log.info('Pulling fragment {}, described by {}...'.format(fid, tps))
     fgm_gen, _, graph = agora_client.get_fragment_generator('{ %s }' % ' . '.join(tps), workers=2,
                                                             provider=graph_provider)
+
+    # There is no search plan to execute
+    if not list(graph.subjects(RDF.type, AGORA.SearchTree)):
+        __remove_fragment(fid)
+        return
 
     triple_patterns = {tpn: __triple_pattern(graph, tpn) for tpn in
                        graph.subjects(RDF.type, AGORA.TriplePattern)}
@@ -243,7 +267,7 @@ def __pull_fragment(fid):
             __consume_quad(fid, (triple_patterns[c], s, p, o), graph, sinks=r_sinks)
         lock.release()
         if r.scard('fragments:{}:requests'.format(fid)) != len(requests):
-            requests, r_sinks = __load_fragment_requests()
+            requests, r_sinks = __load_fragment_requests(fid)
         n_triples += 1
 
     log.debug('{} triples retrieved for fragment {}'.format(n_triples, fid))
