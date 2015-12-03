@@ -39,7 +39,7 @@ log = logging.getLogger('sdh.curator.actions.base')
 def _fullname(f):
     def wrapper():
         clz = f()
-        return clz.__module__ + '.' + clz.__name__
+        return clz.__module__.replace('sdh.curator.actions.ext.', '') + '.' + clz.__name__
 
     return wrapper
 
@@ -109,7 +109,10 @@ class Sink(object):
 
     def __getattr__(self, item):
         if item in self._dict_fields:
-            return self._dict_fields[item]
+            value = self._dict_fields[item]
+            if value == 'True' or value == 'False':
+                return eval(value)
+            return value
         return super(Sink, self).__getattribute__(item)
 
     def save(self, action):
@@ -144,8 +147,10 @@ class Sink(object):
         self._pipe.hmset(self._request_key, {'submitted_by': action.request.submitted_by,
                                              'submitted_on': action.request.submitted_on,
                                              'message_id': action.request.message_id,
-                                             'response_class': _fullname(action.response_class)(),
-                                             'id': action.id})
+                                             'id': self._request_id,
+                                             '__response_class': _fullname(action.response_class)(),
+                                             'type': action.__class__.__module__,
+                                             '__hash': action.id})
 
     @property
     def request_id(self):

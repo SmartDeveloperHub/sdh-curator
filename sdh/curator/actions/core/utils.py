@@ -30,6 +30,13 @@ from networkx.algorithms.isomorphism import DiGraphMatcher
 __author__ = 'Fernando Serena'
 
 
+def parse_bool(s):
+    if type(s) == str:
+        if s == 'True':
+            return True
+    return False
+
+
 class CGraph(Graph):
     def objects(self, subject=None, predicate=None, card=None):
         objs_gen = super(CGraph, self).objects(subject, predicate)
@@ -62,6 +69,22 @@ class CGraph(Graph):
         return gen_bak
 
 
+def chunks(l, n):
+    """Yield successive n-sized chunks from l."""
+    if n:
+        if getattr(l, '__iter__') is not None:
+            l = l.__iter__()
+        finished = False
+        while not finished:
+            chunk = []
+            try:
+                for _ in range(n):
+                    chunk.append(l.next())
+            except StopIteration:
+                finished = True
+            yield chunk
+
+
 class GraphPattern(set):
     def __init__(self, s=()):
         super(GraphPattern, self).__init__(s)
@@ -75,14 +98,28 @@ class GraphPattern(set):
         g = nx.DiGraph()
         for tp in self:
             (s, p, o) = tuple(tp.split(' '))
-            g.add_nodes_from([s, p, o])
-            g.add_edge(s, o, link=p)
-            if not o.startswith('?'):
-                g.add_node(o, literal=True)
+            edge_data = {'link': p}
+            g.add_node(s)
+            if o.startswith('?'):
+                g.add_node(o)
+            else:
+                g.add_node(o, literal=o)
+                edge_data['to'] = o
+            g.add_edge(s, o, **edge_data)
 
         return g
 
     def __eq__(self, other):
+        if not isinstance(other, GraphPattern):
+            return super(GraphPattern, self).__eq__(other)
+
+        mapping = self.mapping(other)
+        return mapping is not None
+
+    def mapping(self, other):
+        if not isinstance(other, GraphPattern):
+            return None
+
         my_wire = self.wire
         others_wire = other.wire
 
@@ -93,6 +130,14 @@ class GraphPattern(set):
             return e1 == e2
 
         matcher = DiGraphMatcher(my_wire, others_wire, node_match=__node_match, edge_match=__edge_match)
-        return matcher.is_isomorphic()
+        mapping = list(matcher.isomorphisms_iter())
+        if len(mapping) == 1:
+            return mapping.pop()
+        else:
+            return None
+
+
+
+
 
 

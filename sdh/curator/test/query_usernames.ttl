@@ -14,34 +14,36 @@
 
 @prefix doap:    <http://usefulinc.com/ns/doap#> .
 @prefix foaf:    <http://xmlns.com/foaf/0.1/> .
+@prefix oslc_auto: <http://open-services.net/ns/auto#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
 
 ##-- EXAMPLE ENRICHMENT REQUEST ----------------------------------------------##
 
-<#request> a curator:EnrichmentRequest ;
-  curator:messageId "00000000-0000-0000-0000-000000000001"^^types:UUID ;
+<#request> a curator:QueryRequest ;
+  curator:messageId "00000000-0000-0000-0000-000000000005"^^types:UUID ;
   curator:submittedBy <#connector> ;
   curator:submittedOn "2015-09-29T09:30:10+01:00"^^xsd:dateTime ;
-  curator:replyTo <#deliveryChannel> ;
-  curator:targetResource <http://localhost:9001/scm/repositories/1> .
+  curator:replyTo <#deliveryChannel> .
 
 <#connector> a foaf:Agent ;
   curator:agentId "00000000-0000-0000-0001-000000000001"^^types:UUID .
 
 <#deliveryChannel> a curator:DeliveryChannel ;
   amqp:broker <#broker> ;
-  amqp:exchangeName "ci.responses"^^types:Name ;
-  amqp:queueName "builds"^^types:Name ;
-  amqp:routingKey "enrichment.responses"^^types:Name .
+  amqp:exchangeName ""^^types:Name ;
+  amqp:routingKey ""^^types:Name .
 
 <#broker> a amqp:Broker ;
-  amqp:host "127.0.0.1"^^types:Hostname ;
-  amqp:port "41980"^^types:Port ;
-  amqp:virtualHost "/sdh/curator/"^^types:Path .
+  amqp:host "localhost"^^types:Hostname ;
+  amqp:port "5672"^^types:Port ;
+  amqp:virtualHost ""^^types:Path .
 
-<http://localhost:9001/scm/repositories/1>
-  a curator:Variable ;
-  doap:name "jenkins" ;
-  scm:hasBranch  [
-    a curator:Variable ;
-    doap:name      "master"^^xsd:string
-  ].
+[] a curator:Variable ;
+  doap:developer [
+     a curator:Variable ;
+     curator:label "?d" ;
+     foaf:name [
+       a curator:Variable ;
+       curator:label "?n"
+     ]
+  ] .

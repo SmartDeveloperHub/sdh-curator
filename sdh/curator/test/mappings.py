@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
   This file is part of the Smart Developer Hub Project:
@@ -11,7 +10,7 @@
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
-  You may obtain a copy of the License at
+  You may obtain a copy of the License at 
 
             http://www.apache.org/licenses/LICENSE-2.0
 
@@ -23,37 +22,18 @@
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
 
+from sdh.curator.actions.core.utils import GraphPattern
+
 __author__ = 'Fernando Serena'
 
-import logging
-from sdh.curator.server import app
-import os
 
-log_level = os.environ.get('LOG_LEVEL')
-if log_level is None:
-    log_level = app.config['LOG']
+gp1 = GraphPattern()
+gp1.add('?a scm:hasBranch ?b')
 
-logger = logging.getLogger('apscheduler')
-ch = logging.StreamHandler()
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-ch.setLevel(log_level)
-ch.setFormatter(formatter)
-logger.addHandler(ch)
-logger.setLevel(log_level)
-logger = logging.getLogger('sdh.curator')
-logger.addHandler(ch)
-logger.setLevel(log_level)
-logger = logging.getLogger('agora')
-logger.addHandler(ch)
-logger.setLevel(log_level)
+gp2 = GraphPattern()
+gp2.add('?s a scm:Repository')
+gp2.add('?s scm:hasBranch ?b')
+gp2.add('?b doap:name ?n')
 
-from sdh.curator import api
-import sdh.curator.messaging
-from sdh.curator.daemons import delivery
-from sdh.curator.daemons import fragment
-
-
-app.logger.info('Ready')
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=app.config['PORT'], debug=False, use_reloader=False)
+mapping = gp2.mapping(gp1)
+print mapping

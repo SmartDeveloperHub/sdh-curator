@@ -22,12 +22,11 @@
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
 import logging
-
-from abc import ABCMeta, abstractmethod
+from abc import ABCMeta, abstractmethod, abstractproperty
 from sdh.curator.actions.core.base import Request, Action, Response, Sink
 from sdh.curator.actions.core.utils import CGraph
-from rdflib import BNode, Literal
-from sdh.curator.actions.core import RDF, CURATOR, FOAF, TYPES
+from rdflib import BNode, Literal, RDFS
+from sdh.curator.actions.core import RDF, CURATOR, FOAF, TYPES, XSD
 from sdh.curator.messaging.reply import reply
 from sdh.curator.store import r
 from datetime import datetime
@@ -37,21 +36,51 @@ import uuid
 __author__ = 'Fernando Serena'
 
 log = logging.getLogger('sdh.curator.actions.delivery')
-
 CURATOR_UUID = Literal(str(uuid.uuid4()), datatype=TYPES.UUID)
 
-_accepted_template = CGraph()
-_accept_node = BNode('#accepted')
-_curator_node = BNode('#curator')
-_accepted_template.add((_accept_node, RDF.type, CURATOR.Accepted))
-_accepted_template.add((_curator_node, RDF.type, FOAF.Agent))
-_accepted_template.add((_accept_node, CURATOR.submittedBy, _curator_node))
-_accepted_template.add((_accept_node, CURATOR.submittedBy, _curator_node))
-_accepted_template.add(
-    (_curator_node, CURATOR.agentId, CURATOR_UUID))
-_accepted_template.bind('types', TYPES)
-_accepted_template.bind('curator', CURATOR)
-_accepted_template.bind('foaf', FOAF)
+
+def _build_reply_templates():
+    accepted = CGraph()
+    failure = CGraph()
+    response_node = BNode()
+    curator_node = BNode()
+    accepted.add((response_node, RDF.type, CURATOR.Accepted))
+    accepted.add((curator_node, RDF.type, FOAF.Agent))
+    accepted.add((response_node, CURATOR.responseNumber, Literal("0", datatype=XSD.unsignedLong)))
+    accepted.add((response_node, CURATOR.submittedBy, curator_node))
+    accepted.add((response_node, CURATOR.submittedBy, curator_node))
+    accepted.add(
+        (curator_node, CURATOR.agentId, CURATOR_UUID))
+    accepted.bind('types', TYPES)
+    accepted.bind('curator', CURATOR)
+    accepted.bind('foaf', FOAF)
+
+    for triple in accepted:
+        failure.add(triple)
+    failure.set((response_node, RDF.type, CURATOR.Failure))
+    for (prefix, ns) in accepted.namespaces():
+        failure.bind(prefix, ns)
+
+    return accepted, failure
+
+
+def build_reply(template, reply_to, comment=None):
+    reply_graph = CGraph()
+    root_node = None
+    for (s, p, o) in template:
+        reply_graph.add((s, p, o))
+        if p == RDF.type:
+            root_node = s
+    reply_graph.add((root_node, CURATOR.responseTo, Literal(reply_to, datatype=TYPES.UUID)))
+    reply_graph.set((root_node, CURATOR.submittedOn, Literal(datetime.now())))
+    reply_graph.set((root_node, CURATOR.messageId, Literal(str(uuid.uuid4()), datatype=TYPES.UUID)))
+    if comment is not None:
+        reply_graph.set((root_node, RDFS.comment, Literal(comment, datatype=XSD.string)))
+    for (prefix, ns) in template.namespaces():
+        reply_graph.bind(prefix, ns)
+    return reply_graph
+
+accepted_template, failure_template = _build_reply_templates()
 
 
 class DeliveryRequest(Request):
@@ -61,11 +90,10 @@ class DeliveryRequest(Request):
     def _extract_content(self):
         super(DeliveryRequest, self)._extract_content()
 
-        q_res = self._graph.query("""SELECT ?node ?ex ?q ?rk ?h ?p ?v WHERE {
+        q_res = self._graph.query("""SELECT ?node ?ex ?rk ?h ?p ?v WHERE {
                                   ?node curator:replyTo [
                                         a curator:DeliveryChannel;
                                         amqp:exchangeName ?ex;
-                                        amqp:queueName ?q;
                                         amqp:routingKey ?rk;
                                         amqp:broker [
                                            a amqp:Broker;
@@ -90,20 +118,17 @@ class DeliveryRequest(Request):
         delivery_data = {}
 
         (delivery_data['exchange'],
-         delivery_data['queue'],
          delivery_data['routing_key'],
          delivery_data['host'],
          delivery_data['port'],
          delivery_data['vhost']) = request_fields[1:]
         log.debug("""Parsed attributes of a delivery action request:
                       -exchange name: {}
-                      -queue name: {}
                       -routing key: {}
                       -host: {}
                       -port: {}
                       -virtual host: {}""".format(
             delivery_data['exchange'],
-            delivery_data['queue'],
             delivery_data['routing_key'],
             delivery_data['host'], delivery_data['port'], delivery_data['vhost']))
 
@@ -111,12 +136,20 @@ class DeliveryRequest(Request):
 
     @property
     def broker(self):
-        return {k: self._fields['delivery'][k] for k in ('host', 'port', 'vhost') if k in self._fields['delivery']}
+        broker_dict = {k: self._fields['delivery'][k].toPython() for k in ('host', 'port', 'vhost') if k in self._fields['delivery']}
+        broker_dict['port'] = int(broker_dict['port'])
+        return broker_dict
 
     @property
     def channel(self):
-        return {k: self._fields['delivery'][k] for k in ('exchange', 'queue', 'routing_key') if
+        return {k: self._fields['delivery'][k].toPython() for k in ('exchange', 'routing_key') if
                 k in self._fields['delivery']}
+
+    @property
+    def recipient(self):
+        recipient = self.broker.copy()
+        recipient.update(self.channel)
+        return recipient
 
 
 class DeliveryAction(Action):
@@ -125,24 +158,25 @@ class DeliveryAction(Action):
     def __init__(self, message):
         super(DeliveryAction, self).__init__(message)
 
-    @staticmethod
-    def __get_accept_graph(message_id):
-        form = CGraph()
-        for t in _accepted_template:
-            form.add(t)
-        form.add((_accept_node, CURATOR.messageId, Literal(message_id, datatype=TYPES.UUID)))
-        form.add((_accept_node, CURATOR.submittedOn, Literal(datetime.now())))
-        for (prefix, ns) in _accepted_template.namespaces():
-            form.bind(prefix, ns)
-        return form
-
     def __reply_accepted(self):
-        graph = self.__get_accept_graph(self.request.message_id)
+        graph = build_reply(accepted_template, self.request.message_id)
         log.debug('Notifying acceptance of request number {}'.format(self.request_id))
-        # reply(graph.serialize(format='turtle'), **self.request.channel)
-        reply(graph.serialize(format='turtle'), {'exchange': 'sdh', 'routing_key': 'curator.event'})
-        if self.sink.state != 'ready':
-            self.sink.state = 'accepted'
+        reply(graph.serialize(format='turtle'), exchange='sdh',
+              routing_key='curator.response.{}'.format(self.request.submitted_by),
+              **self.request.broker)
+        if self.sink.delivery is None:
+            self.sink.delivery = 'accepted'
+
+    def _reply_failure(self, reason=None):
+        try:
+            graph = build_reply(failure_template, self.request.message_id, reason)
+            log.debug('Notifying failure of request number {}'.format(self.request_id))
+            reply(graph.serialize(format='turtle'), exchange='sdh',
+                  routing_key='curator.response.{}'.format(self.request.submitted_by),
+                  **self.request.broker)
+        except KeyError:
+            # Delivery channel data may be invalid
+            pass
 
     def submit(self):
         super(DeliveryAction, self).submit()
@@ -151,6 +185,22 @@ class DeliveryAction(Action):
         except Exception, e:
             log.warning(e.message)
             self.sink.remove()
+        # if self.sink.ready:
+        #     self.sink.delivery = 'ready'
+
+
+def used_channels():
+    req_channel_keys = r.keys('requests:*')
+    for rck in req_channel_keys:
+        try:
+            channel = r.hget(rck, 'channel')
+            yield channel
+        except Exception as e:
+            log.warning(e.message)
+
+
+def channel_sharing(channel_b64):
+    return len(list(filter(lambda x: x == channel_b64, used_channels()))) - 1  # Don't count itself
 
 
 class DeliverySink(Sink):
@@ -160,7 +210,7 @@ class DeliverySink(Sink):
     def _save(self, action):
         super(DeliverySink, self)._save(action)
         self._pipe.sadd('deliveries', self._request_id)
-        broker_b64 = base64.b64encode('|'.join(action.request.broker.values()))
+        broker_b64 = base64.b64encode('|'.join(map(lambda x: str(x), action.request.broker.values())))
         channel_b64 = base64.b64encode('|'.join(action.request.channel.values()))
         self._pipe.hmset('channels:{}'.format(channel_b64), action.request.channel)
         self._pipe.hmset('brokers:{}'.format(broker_b64), action.request.broker)
@@ -172,33 +222,45 @@ class DeliverySink(Sink):
         super(DeliverySink, self)._load()
         self._dict_fields['channel'] = r.hgetall('channels:{}'.format(self._dict_fields['channel']))
         self._dict_fields['broker'] = r.hgetall('brokers:{}'.format(self._dict_fields['broker']))
+        self._dict_fields['broker']['port'] = int(self._dict_fields['broker']['port'])
+        recipient = self._dict_fields['channel'].copy()
+        recipient.update(self._dict_fields['broker'])
+        self._dict_fields['recipient'] = recipient
         try:
-            del self._dict_fields['state']
+            del self._dict_fields['delivery']
         except KeyError:
             pass
 
     @abstractmethod
     def _remove(self, pipe):
         super(DeliverySink, self)._remove(pipe)
-        pipe.delete('deliveries:{}'.format(self._request_id))
         pipe.srem('deliveries', self._request_id)
         pipe.srem('deliveries:ready', self._request_id)
-        # TODO: Delete channel if it is unique
+        channel_b64 = r.hget(self._request_key, 'channel')
+        sharing = channel_sharing(channel_b64)
+        if not sharing:
+            log.debug('Removing channel {}'.format(channel_b64))
+            pipe.delete('channels:{}'.format(channel_b64))
 
     @property
-    def state(self):
-        return r.hget('deliveries:{}'.format(self._request_id), 'state')
+    def delivery(self):
+        return r.hget('requests:{}'.format(self._request_id), 'delivery')
 
-    @state.setter
-    def state(self, value):
+    @delivery.setter
+    def delivery(self, value):
         with r.pipeline(transaction=True) as p:
             p.multi()
             if value == 'ready':
                 p.sadd('deliveries:ready', self._request_id)
-            else:
+            elif value == 'sent':
                 p.srem('deliveries:ready', self._request_id)
-            p.hset('deliveries:{}'.format(self._request_id), 'state', value)
+                p.sadd('deliveries:sent', self._request_id)
+            p.hset('requests:{}'.format(self._request_id), 'delivery', value)
             p.execute()
+
+    @abstractproperty
+    def ready(self):
+        return False
 
 
 class DeliveryResponse(Response):

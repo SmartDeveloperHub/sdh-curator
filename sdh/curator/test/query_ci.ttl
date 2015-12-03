@@ -19,12 +19,11 @@
 
 ##-- EXAMPLE ENRICHMENT REQUEST ----------------------------------------------##
 
-<#request> a curator:EnrichmentRequest ;
-  curator:messageId "00000000-0000-0000-0000-000000000002"^^types:UUID ;
+<#request> a curator:QueryRequest ;
+  curator:messageId "00000000-0000-0000-0000-000000000005"^^types:UUID ;
   curator:submittedBy <#connector> ;
   curator:submittedOn "2015-09-29T09:30:10+01:00"^^xsd:dateTime ;
-  curator:replyTo <#deliveryChannel> ;
-  curator:targetResource <http://localhost:9001/ci/builds/4/> .
+  curator:replyTo <#deliveryChannel> .
 
 <#connector> a foaf:Agent ;
   curator:agentId "00000000-0000-0000-0001-000000000001"^^types:UUID .
@@ -39,14 +38,9 @@
   amqp:port "5672"^^types:Port ;
   amqp:virtualHost ""^^types:Path .
 
-<http://localhost:9001/ci/builds/4/>
-  ci:forBranch  _:branch .
-
-_:repository a curator:Variable ;
-  scm:hasBranch  _:branch ;
-  a scm:Repository ;
-  doap:name   "maven-hpi-plugin"^^xsd:string .
-
-_:branch a curator:Variable ;
-  a scm:Branch ;
-  doap:name      "master"^^xsd:string .
+[] a curator:Variable ;
+  curator:label "?b" ;
+  ci:hasExecution [
+     a curator:Variable ;
+     curator:label "?e"
+  ] .

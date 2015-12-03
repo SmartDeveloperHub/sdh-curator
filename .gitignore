@@ -1,4 +1,4 @@
-graph_store/
+store/
 .env/
 .idea/
 *.pyc
