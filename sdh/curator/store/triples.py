@@ -22,7 +22,7 @@
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
 
-from rdflib import ConjunctiveGraph, URIRef, Literal, XSD
+from rdflib import ConjunctiveGraph, URIRef, Literal, XSD, BNode
 from sdh.curator.server import app
 import logging
 import calendar
@@ -47,6 +47,8 @@ def load_stream_triples(fid, until):
             elif '^^' in elm:
                 (value, ty) = tuple(elm.split('^^'))
                 return Literal(value.replace('"', ''), datatype=URIRef(ty.lstrip('<').rstrip('>')))
+            elif elm.startswith('_:'):
+                return BNode(elm.replace('_:', ''))
             else:
                 return Literal(elm.replace('"', ''), datatype=XSD.string)
 
