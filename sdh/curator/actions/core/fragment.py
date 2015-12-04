@@ -176,6 +176,8 @@ class FragmentSink(DeliverySink):
             mapping = {str(k): str(k) for k in self._variables_dict.values()}
         else:
             self._fragment_id, mapping = fragment_mapping
+            if r.get('fragments:{}:on_demand'.format(self._fragment_id)) is not None:
+                self._pipe.delete('fragments:{}:sync'.format(self._fragment_id))
         self._pipe.hset(self._request_key, 'mapping', mapping)
         self._pipe.hset(self._request_key, 'preferred_labels', self._preferred_labels)
         self._pipe.sadd('fragments:{}:requests'.format(self._fragment_id), self._request_id)
@@ -213,7 +215,7 @@ class FragmentSink(DeliverySink):
 
     @property
     def backed(self):
-        return self.fragment_updated_on is not None
+        return self.fragment_updated_on is not None and self.fragment_on_demand is None
 
     @property
     def fragment_id(self):
@@ -227,6 +229,10 @@ class FragmentSink(DeliverySink):
     @property
     def fragment_updated_on(self):
         return r.get('fragments:{}:updated'.format(self._fragment_id))
+
+    @property
+    def fragment_on_demand(self):
+        return r.get('fragments:{}:on_demand'.format(self._fragment_id))
 
     @property
     def is_pulling(self):
@@ -260,16 +266,6 @@ class FragmentResponse(DeliveryResponse):
             log.error(e.message)
         finally:
             c_lock.release()
-        # with r.pipeline() as p:
-        #     try:
-        #         p.incr('fragments:{}:consumers'.format(self.sink.fragment_id))
-        #         p.execute()
-        #         generator = self._build()
-        #         for response in generator:
-        #             yield response
-        #     finally:
-        #         p.decr('fragments:{}:consumers'.format(self.sink.fragment_id))
-        #         p.execute()
 
     @abstractmethod
     def _build(self):

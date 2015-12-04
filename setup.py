@@ -28,7 +28,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="SDH-Curator",
-    version="0.1.3",
+    version="0.1.4",
     author="Fernando Serena",
     author_email="fernando.serena@centeropenmiddleware.com",
     description="The service responsible for supporting resource enrichment on a Linked Data platform",

@@ -43,6 +43,8 @@ __author__ = 'Fernando Serena'
 
 log = logging.getLogger('sdh.curator.daemons.fragment')
 agora_client = Agora(**app.config['AGORA'])
+ON_DEMAND_TH = app.config.get('PARAMS', {}).get('on_demand_threshold', 2000)
+MIN_SYNC = app.config.get('PARAMS', {}).get('min_sync_time', 10)
 
 thp = ThreadPoolExecutor(max_workers=4)
 
@@ -228,6 +230,8 @@ def __pull_fragment(fid):
     tps = r.smembers('fragments:{}:gp'.format(fid))
     requests, r_sinks = __load_fragment_requests(fid)
     log.info('Pulling fragment {}, described by {}...'.format(fid, tps))
+    start_time = datetime.now()
+
     try:
         fgm_gen, _, graph = agora_client.get_fragment_generator('{ %s }' % ' . '.join(tps), workers=2,
                                                                 provider=graph_provider)
@@ -274,7 +278,8 @@ def __pull_fragment(fid):
             requests, r_sinks = __load_fragment_requests(fid)
         n_triples += 1
 
-    log.debug('{} triples retrieved for fragment {}'.format(n_triples, fid))
+    elapsed_ms = (datetime.now() - start_time).microseconds / 1000
+    log.debug('{} triples retrieved for fragment {} in {} ms'.format(n_triples, fid, elapsed_ms))
 
     lock.acquire()
     c_lock.acquire()
@@ -283,8 +288,17 @@ def __pull_fragment(fid):
     with r.pipeline(transaction=True) as p:
         p.multi()
         sync_key = 'fragments:{}:sync'.format(fid)
+        demand_key = 'fragments:{}:on_demand'.format(fid)
         p.set(sync_key, True)
-        p.expire(sync_key, random.randint(60, 100))
+        if elapsed_ms < ON_DEMAND_TH and elapsed_ms * random.random() < ON_DEMAND_TH / 4:
+            p.set(demand_key, True)
+            log.debug('Setting fragment {} to on-demand mode'.format(fid))
+        else:
+            p.delete(demand_key)
+            min_durability = int(max(MIN_SYNC, elapsed_ms / 1000))
+            durability = random.randint(min_durability, min_durability * 2)
+            p.expire(sync_key, durability)
+            log.debug('Setting fragment {} to sync mode for {} s'.format(fid, durability))
         p.set('fragments:{}:updated'.format(fid), dt.now())
         p.delete('fragments:{}:pulling'.format(fid))
         p.execute()

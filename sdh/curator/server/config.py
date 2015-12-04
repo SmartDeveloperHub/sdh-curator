@@ -47,8 +47,15 @@ def _rabbit_conf(def_host, def_port):
     return {'host': os.environ.get('AMQP_HOST', def_host),
             'port': os.environ.get('AMQP_PORT', def_port)}
 
+
+def _params_conf(def_on_demand_th, def_sync_time):
+    return {'on_demand_threshold': os.environ.get('CURATOR_DEMAND_TH', def_on_demand_th),
+            'min_sync_time': os.environ.get('CURATOR_MIN_SYNC_TIME', def_sync_time)}
+
+
 class Config(object):
     PORT = _api_port()
+    PARAMS = _params_conf(2000, 10)
 
 
 class DevelopmentConfig(Config):
@@ -56,7 +63,7 @@ class DevelopmentConfig(Config):
     LOG = logging.DEBUG
     STORE = 'persist'
     REDIS = _redis_conf('localhost', 4, 6379)
-    AGORA = _agora_conf('localhost', 9009)
+    AGORA = _agora_conf('localhost', 9002)
     RABBIT = _rabbit_conf('localhost', 5672)
 
 
