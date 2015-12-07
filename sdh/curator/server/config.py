@@ -55,7 +55,7 @@ def _params_conf(def_on_demand_th, def_sync_time):
 
 class Config(object):
     PORT = _api_port()
-    PARAMS = _params_conf(2000, 10)
+    PARAMS = _params_conf(2.0, 10)
 
 
 class DevelopmentConfig(Config):

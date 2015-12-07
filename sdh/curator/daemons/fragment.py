@@ -43,7 +43,7 @@ __author__ = 'Fernando Serena'
 
 log = logging.getLogger('sdh.curator.daemons.fragment')
 agora_client = Agora(**app.config['AGORA'])
-ON_DEMAND_TH = app.config.get('PARAMS', {}).get('on_demand_threshold', 2000)
+ON_DEMAND_TH = app.config.get('PARAMS', {}).get('on_demand_threshold', 2.0)
 MIN_SYNC = app.config.get('PARAMS', {}).get('min_sync_time', 10)
 
 thp = ThreadPoolExecutor(max_workers=4)
@@ -278,8 +278,8 @@ def __pull_fragment(fid):
             requests, r_sinks = __load_fragment_requests(fid)
         n_triples += 1
 
-    elapsed_ms = (datetime.now() - start_time).microseconds / 1000
-    log.debug('{} triples retrieved for fragment {} in {} ms'.format(n_triples, fid, elapsed_ms))
+    elapsed = (datetime.now() - start_time).total_seconds()
+    log.debug('{} triples retrieved for fragment {} in {} s'.format(n_triples, fid, elapsed))
 
     lock.acquire()
     c_lock.acquire()
@@ -290,12 +290,12 @@ def __pull_fragment(fid):
         sync_key = 'fragments:{}:sync'.format(fid)
         demand_key = 'fragments:{}:on_demand'.format(fid)
         p.set(sync_key, True)
-        if elapsed_ms < ON_DEMAND_TH and elapsed_ms * random.random() < ON_DEMAND_TH / 4:
+        if elapsed < ON_DEMAND_TH and elapsed * random.random() < ON_DEMAND_TH / 4:
             p.set(demand_key, True)
             log.debug('Setting fragment {} to on-demand mode'.format(fid))
         else:
             p.delete(demand_key)
-            min_durability = int(max(MIN_SYNC, elapsed_ms / 1000))
+            min_durability = int(max(MIN_SYNC, elapsed))
             durability = random.randint(min_durability, min_durability * 2)
             p.expire(sync_key, durability)
             log.debug('Setting fragment {} to sync mode for {} s'.format(fid, durability))
