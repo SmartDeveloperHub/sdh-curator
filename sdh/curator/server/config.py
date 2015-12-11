@@ -48,14 +48,17 @@ def _rabbit_conf(def_host, def_port):
             'port': os.environ.get('AMQP_PORT', def_port)}
 
 
-def _params_conf(def_on_demand_th, def_sync_time):
-    return {'on_demand_threshold': os.environ.get('CURATOR_DEMAND_TH', def_on_demand_th),
-            'min_sync_time': os.environ.get('CURATOR_MIN_SYNC_TIME', def_sync_time)}
+def _params_conf(def_on_demand_th, def_sync_time, def_frag_collectors, def_max_conc_fragments, def_max_conc_deliveries):
+    return {'on_demand_threshold': float(os.environ.get('CURATOR_DEMAND_TH', def_on_demand_th)),
+            'min_sync_time': int(os.environ.get('CURATOR_MIN_SYNC_TIME', def_sync_time)),
+            'fragment_collectors': int(os.environ.get('N_FRAGMENT_COLLECTORS', def_frag_collectors)),
+            'max_concurrent_fragments': int(os.environ.get('MAX_CONCURRENT_FRAGMENTS', def_max_conc_fragments)),
+            'max_concurrent_deliveries': int(os.environ.get('MAX_CONCURRENT_DELIVERIES', def_max_conc_deliveries))}
 
 
 class Config(object):
     PORT = _api_port()
-    PARAMS = _params_conf(2.0, 10)
+    PARAMS = _params_conf(2.0, 10, 1, 8, 4)
 
 
 class DevelopmentConfig(Config):

@@ -24,14 +24,17 @@
 import logging
 from threading import Thread
 from sdh.curator.store import r
+from sdh.curator.server import app
 from concurrent.futures.thread import ThreadPoolExecutor
 from sdh.curator.messaging.reply import reply
 import traceback
 
 __author__ = 'Fernando Serena'
 
+MAX_CONCURRENT_DELIVERIES = int(app.config.get('PARAMS', {}).get('max_concurrent_deliveries', 4))
+
 log = logging.getLogger('sdh.curator.daemons.delivery')
-thp = ThreadPoolExecutor(max_workers=2)
+thp = ThreadPoolExecutor(max_workers=min(8, MAX_CONCURRENT_DELIVERIES))
 
 
 def build_response(rid):
@@ -48,7 +51,7 @@ def __deliver_response(rid):
     try:
         response = build_response(rid)
         if response.sink.delivery == 'ready':
-            log.debug('Delivery-{} in process...'.format(rid))
+            log.debug('Delivery for request {} started'.format(rid))
             messages = response.build()
             message, headers = messages.next()
             reply(message, headers=headers, **response.sink.recipient)
@@ -58,18 +61,17 @@ def __deliver_response(rid):
             if response.sink.delivery == 'ready':
                 response.sink.delivery = 'sent'
     except StopIteration:
+        r.srem('deliveries:ready', rid)
         log.debug('There is nothing to deliver for request number {}. Skipping...'.format(rid))
-    except AttributeError, e:
-        log.error(e.message)
-        # A response couldn't be created
-    except EnvironmentError, e:
+    except (EnvironmentError, AttributeError, Exception), e:
+        r.srem('deliveries:ready', rid)
         traceback.print_exc()
         log.warning(e.message)
         if response is not None:
+            log.debug('Force remove of request {} due to a delivery error'.format(rid))
             response.sink.remove()
-    except Exception, e:
-        traceback.print_exc()
-        log.warning(e.message)
+        else:
+            log.error("Couldn't remove request {}".format(rid))
 
 
 def __deliver_responses():
@@ -81,6 +83,7 @@ def __deliver_responses():
         ready = r.smembers('deliveries:ready')
         for rid in ready:
             if rid not in futures:
+                log.debug('Preparing delivery for request {}...'.format(rid))
                 futures[rid] = thp.submit(__deliver_response, rid)
 
         for obsolete_rid in set.difference(set(futures.keys()), ready):
@@ -89,15 +92,16 @@ def __deliver_responses():
 
         sent = r.smembers('deliveries:sent')
         for rid in sent:
+            r.srem('deliveries:ready', rid)
             try:
                 response = build_response(rid)
                 response.sink.remove()
+                log.debug('Request {} sent and cleared'.format(rid))
             except AttributeError:
                 log.warning('Request number {} was deleted by other means'.format(rid))
                 pass
 
         r.delete('deliveries:sent')
-
         time.sleep(1)
 
 
