@@ -46,7 +46,7 @@ agora_client = Agora(**app.config['AGORA'])
 ON_DEMAND_TH = float(app.config.get('PARAMS', {}).get('on_demand_threshold', 2.0))
 MIN_SYNC = int(app.config.get('PARAMS', {}).get('min_sync_time', 10))
 N_COLLECTORS = int(app.config.get('PARAMS', {}).get('fragment_collectors', 1))
-MAX_CONCURRENT_FRAGMENTS = int(app.config.get('PARAMS', {}).get('max_concurrent_fragments', 8))
+MAX_CONCURRENT_FRAGMENTS = int(app.config.get('PARAMS', {}).get('max_concurrent_fragments', 4))
 
 thp = ThreadPoolExecutor(max_workers=min(8, MAX_CONCURRENT_FRAGMENTS))
 
@@ -272,14 +272,12 @@ def __pull_fragment(fid):
 
     n_triples = 0
     for (c, s, p, o) in fgm_gen:
-        breath = False
         lock.acquire()
         if add_stream_triple(fid, triple_patterns[c], (s, p, o)):
             __consume_quad(fid, (triple_patterns[c], s, p, o), graph, sinks=r_sinks)
-            breath = True
+        time.sleep(0.01)
         lock.release()
-        if breath:
-            time.sleep(0.001)
+
         if r.scard('fragments:{}:requests'.format(fid)) != len(requests):
             requests, r_sinks = __load_fragment_requests(fid)
         n_triples += 1
