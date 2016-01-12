@@ -23,6 +23,7 @@
 """
 import calendar
 import logging
+import traceback
 from shortuuid import uuid
 
 from abc import ABCMeta, abstractmethod
@@ -215,7 +216,7 @@ class FragmentSink(DeliverySink):
 
     @property
     def backed(self):
-        return self.fragment_updated_on is not None and self.fragment_on_demand is None
+        return self.fragment_updated_on is not None # and self.fragment_on_demand is None
 
     @property
     def fragment_id(self):
@@ -263,6 +264,7 @@ class FragmentResponse(DeliveryResponse):
             for response in generator:
                 yield response
         except Exception, e:
+            traceback.print_exc()
             log.error(e.message)
         finally:
             c_lock.release()
@@ -319,5 +321,10 @@ class FragmentResponse(DeliveryResponse):
         else:
             where_gp = ' . '.join(gp)
             query = """CONSTRUCT WHERE { %s }""" % where_gp
-        result = self.graph(data=True).query(query)
+
+        result = []
+        try:
+            result = self.graph(data=True).query(query)
+        except Exception, e:    # ParseException from query
+            log.warning(e.message)
         return result, stream

@@ -114,6 +114,7 @@ class QuerySink(FragmentSink):
     def _save(self, action):
         super(QuerySink, self)._save(action)
         if self.backed:
+            log.debug('Request {} is already backed'.format(action.request_id))
             self.delivery = 'ready'
 
     def _load(self):

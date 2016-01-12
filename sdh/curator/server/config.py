@@ -66,7 +66,7 @@ class DevelopmentConfig(Config):
     LOG = logging.DEBUG
     STORE = 'persist'
     REDIS = _redis_conf('localhost', 4, 6379)
-    AGORA = _agora_conf('localhost', 9002)
+    AGORA = _agora_conf('localhost', 9009)
     RABBIT = _rabbit_conf('localhost', 5672)
 
 
@@ -85,5 +85,5 @@ class ProductionConfig(Config):
     LOG = logging.DEBUG
     STORE = 'persist'
     REDIS = _redis_conf('redis', 4, 6379)
-    AGORA = _agora_conf('138.4.249.224', 9009)
+    AGORA = _agora_conf('localhost', 9009)
     RABBIT = _rabbit_conf('rabbit', 5672)
