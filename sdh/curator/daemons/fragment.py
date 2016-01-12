@@ -46,7 +46,7 @@ agora_client = Agora(**app.config['AGORA'])
 ON_DEMAND_TH = float(app.config.get('PARAMS', {}).get('on_demand_threshold', 2.0))
 MIN_SYNC = int(app.config.get('PARAMS', {}).get('min_sync_time', 10))
 N_COLLECTORS = int(app.config.get('PARAMS', {}).get('fragment_collectors', 1))
-MAX_CONCURRENT_FRAGMENTS = int(app.config.get('PARAMS', {}).get('max_concurrent_fragments', 4))
+MAX_CONCURRENT_FRAGMENTS = int(app.config.get('PARAMS', {}).get('max_concurrent_fragments', 8))
 
 thp = ThreadPoolExecutor(max_workers=min(8, MAX_CONCURRENT_FRAGMENTS))
 
