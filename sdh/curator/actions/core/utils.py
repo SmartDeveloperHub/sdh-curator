@@ -22,10 +22,11 @@
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
 
-from rdflib import Graph
 import itertools
+
 import networkx as nx
 from networkx.algorithms.isomorphism import DiGraphMatcher
+from rdflib import Graph
 
 __author__ = 'Fernando Serena'
 
@@ -135,9 +136,3 @@ class GraphPattern(set):
             return mapping.pop()
         else:
             return None
-
-
-
-
-
-

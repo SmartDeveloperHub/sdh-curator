@@ -23,17 +23,11 @@
 """
 import calendar
 import json
-
 import logging
 from datetime import datetime
-import uuid
 
 from sdh.curator.actions.core.fragment import FragmentRequest, FragmentAction, FragmentResponse, FragmentSink
-from sdh.curator.actions.core import CURATOR, TYPES, RDF, XSD, FOAF
-from sdh.curator.actions.core.utils import CGraph, chunks
-from rdflib import BNode, Literal
-from sdh.curator.actions.core.delivery import CURATOR_UUID
-from sdh.curator.messaging.reply import reply
+from sdh.curator.actions.core.utils import chunks
 from sdh.curator.daemons.fragment import FragmentPlugin
 
 __author__ = 'Fernando Serena'

@@ -22,12 +22,13 @@
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
 
-import pika
-from threading import Thread
 import logging
+import traceback
+from threading import Thread
+
+import pika
 from sdh.curator.actions import execute
 from sdh.curator.server import app
-import traceback
 
 __author__ = 'Fernando Serena'
 
@@ -50,7 +51,7 @@ def callback(ch, method, properties, body):
 
 def __setup_queues():
     connection = pika.BlockingConnection(pika.ConnectionParameters(
-        host=RABBIT_CONFIG['host']))
+            host=RABBIT_CONFIG['host']))
     channel = connection.channel()
     log.debug('Connected to AMQP server')
 

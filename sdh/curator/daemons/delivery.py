@@ -22,12 +22,13 @@
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
 import logging
+import traceback
 from threading import Thread
-from sdh.curator.store import r
-from sdh.curator.server import app
+
 from concurrent.futures.thread import ThreadPoolExecutor
 from sdh.curator.messaging.reply import reply
-import traceback
+from sdh.curator.server import app
+from sdh.curator.store import r
 
 __author__ = 'Fernando Serena'
 

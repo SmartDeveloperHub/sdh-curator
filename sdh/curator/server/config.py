@@ -22,10 +22,11 @@
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
 
-__author__ = 'Fernando Serena'
-
 import logging
+
 import os
+
+__author__ = 'Fernando Serena'
 
 
 def _api_port():

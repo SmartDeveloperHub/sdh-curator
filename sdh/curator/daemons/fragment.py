@@ -22,22 +22,22 @@
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
 import calendar
-from threading import Thread
 import logging
+import random
 import time
 import traceback
-
 from abc import abstractmethod, abstractproperty
 from datetime import datetime as dt, datetime
-from concurrent.futures.thread import ThreadPoolExecutor
+from threading import Thread
+
 from agora.client.agora import Agora, AGORA
+from concurrent.futures.thread import ThreadPoolExecutor
+from rdflib import RDF, RDFS
+from redis.lock import Lock
+from sdh.curator.daemons.delivery import build_response
 from sdh.curator.server import app
 from sdh.curator.store import r
 from sdh.curator.store.triples import cache as cache, add_stream_triple, load_stream_triples, graph_provider
-from sdh.curator.daemons.delivery import build_response
-from redis.lock import Lock
-from rdflib import RDF, RDFS
-import random
 
 __author__ = 'Fernando Serena'
 
@@ -180,6 +180,7 @@ def __replace_fragment(fid):
         pipe.delete('fragments:{}:stream'.format(fid))
         pipe.execute()
 
+
 def __cache_plan_context(fid, graph):
     try:
         cache.remove_context(cache.get_context(fid))
@@ -228,7 +229,6 @@ def __load_fragment_requests(fid):
 
 
 def __pull_fragment(fid):
-
     tps = r.smembers('fragments:{}:gp'.format(fid))
     requests, r_sinks = __load_fragment_requests(fid)
     log.info('Pulling fragment {}, described by {}...'.format(fid, tps))
@@ -318,7 +318,7 @@ def __collect_fragments():
     while True:
         for fid in filter(
                 lambda x: r.get('fragments:{}:sync'.format(x)) is None and r.get(
-                    'fragments:{}:pulling'.format(x)) is None,
+                        'fragments:{}:pulling'.format(x)) is None,
                 r.smembers('fragments')):
             if fid in futures:
                 if futures[fid].done():

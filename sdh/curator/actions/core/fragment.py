@@ -24,19 +24,19 @@
 import calendar
 import logging
 import traceback
-from shortuuid import uuid
+from datetime import datetime as dt
 
 from abc import ABCMeta, abstractmethod
-from rdflib import Literal, XSD, URIRef
+from agora.client.agora import Agora
+from rdflib import Literal, XSD
+from redis.lock import Lock
+from sdh.curator.actions.core import CURATOR, RDF
 from sdh.curator.actions.core.delivery import DeliveryRequest, DeliveryAction, DeliveryResponse, DeliverySink
 from sdh.curator.actions.core.utils import CGraph, GraphPattern
-from sdh.curator.actions.core import CURATOR, RDF
-from agora.client.agora import Agora, AGORA
+from sdh.curator.server import app
 from sdh.curator.store import r
 from sdh.curator.store.triples import cache, load_stream_triples
-from sdh.curator.server import app
-from datetime import datetime as dt
-from redis.lock import Lock
+from shortuuid import uuid
 
 __author__ = 'Fernando Serena'
 
@@ -65,7 +65,7 @@ class FragmentRequest(DeliveryRequest):
         if not variables:
             raise SyntaxError('There are no variables specified for this request')
         log.debug(
-            'Found {} variables in the the fragment pattern'.format(len(variables)))
+                'Found {} variables in the the fragment pattern'.format(len(variables)))
 
         visited = set([])
         for v in variables:
@@ -216,7 +216,7 @@ class FragmentSink(DeliverySink):
 
     @property
     def backed(self):
-        return self.fragment_updated_on is not None # and self.fragment_on_demand is None
+        return self.fragment_updated_on is not None  # and self.fragment_on_demand is None
 
     @property
     def fragment_id(self):
@@ -325,6 +325,6 @@ class FragmentResponse(DeliveryResponse):
         result = []
         try:
             result = self.graph(data=True).query(query)
-        except Exception, e:    # ParseException from query
+        except Exception, e:  # ParseException from query
             log.warning(e.message)
         return result, stream
