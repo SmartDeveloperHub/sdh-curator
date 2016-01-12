@@ -31,7 +31,7 @@ import traceback
 
 __author__ = 'Fernando Serena'
 
-MAX_CONCURRENT_DELIVERIES = int(app.config.get('PARAMS', {}).get('max_concurrent_deliveries', 4))
+MAX_CONCURRENT_DELIVERIES = int(app.config.get('PARAMS', {}).get('max_concurrent_deliveries', 8))
 
 log = logging.getLogger('sdh.curator.daemons.delivery')
 thp = ThreadPoolExecutor(max_workers=min(8, MAX_CONCURRENT_DELIVERIES))
