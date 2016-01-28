@@ -35,18 +35,18 @@ def _api_port():
 
 def _redis_conf(def_host, def_db, def_port):
     return {'host': os.environ.get('DB_HOST', def_host),
-            'db': os.environ.get('DB_DB', def_db),
-            'port': os.environ.get('DB_PORT', def_port)}
+            'db': int(os.environ.get('DB_DB', def_db)),
+            'port': int(os.environ.get('DB_PORT', def_port))}
 
 
 def _agora_conf(def_host, def_port):
     return {'host': os.environ.get('AGORA_HOST', def_host),
-            'port': os.environ.get('AGORA_PORT', def_port)}
+            'port': int(os.environ.get('AGORA_PORT', def_port))}
 
 
 def _rabbit_conf(def_host, def_port):
     return {'host': os.environ.get('AMQP_HOST', def_host),
-            'port': os.environ.get('AMQP_PORT', def_port)}
+            'port': int(os.environ.get('AMQP_PORT', def_port))}
 
 
 def _params_conf(def_on_demand_th, def_sync_time, def_frag_collectors, def_max_conc_fragments, def_max_conc_deliveries):
@@ -59,7 +59,7 @@ def _params_conf(def_on_demand_th, def_sync_time, def_frag_collectors, def_max_c
 
 class Config(object):
     PORT = _api_port()
-    PARAMS = _params_conf(2.0, 10, 1, 8, 4)
+    PARAMS = _params_conf(2.0, 10, 8, 8, 4)
 
 
 class DevelopmentConfig(Config):
@@ -67,7 +67,7 @@ class DevelopmentConfig(Config):
     LOG = logging.DEBUG
     STORE = 'persist'
     REDIS = _redis_conf('localhost', 4, 6379)
-    AGORA = _agora_conf('localhost', 9009)
+    AGORA = _agora_conf('localhost', 9002)
     RABBIT = _rabbit_conf('localhost', 5672)
 
 
