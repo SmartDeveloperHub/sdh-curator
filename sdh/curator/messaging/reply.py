@@ -23,7 +23,7 @@
 """
 
 import logging
-
+import traceback
 import pika
 from pika.exceptions import ChannelClosed
 from pika.spec import BasicProperties
@@ -42,6 +42,7 @@ def reply(message, exchange=None, routing_key=None, headers=None, host=RABBIT['h
         connection = pika.BlockingConnection(connection_params)
     except Exception, e:
         log.warning(e.message)
+        traceback.print_exc()
         return
 
     try:
