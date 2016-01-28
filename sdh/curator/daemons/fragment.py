@@ -30,7 +30,8 @@ from abc import abstractmethod, abstractproperty
 from datetime import datetime as dt, datetime
 from threading import Thread
 
-from agora.client.agora import Agora, AGORA
+from agora.client.wrapper import Agora
+from agora.client import AGORA
 from concurrent.futures.thread import ThreadPoolExecutor
 from rdflib import RDF, RDFS
 from redis.lock import Lock
@@ -275,7 +276,7 @@ def __pull_fragment(fid):
         lock.acquire()
         if add_stream_triple(fid, triple_patterns[c], (s, p, o)):
             __consume_quad(fid, (triple_patterns[c], s, p, o), graph, sinks=r_sinks)
-        time.sleep(0.01)
+        # time.sleep(0.01)
         lock.release()
 
         if r.scard('fragments:{}:requests'.format(fid)) != len(requests):
