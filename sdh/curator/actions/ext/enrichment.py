@@ -27,7 +27,7 @@ import uuid
 from datetime import datetime
 import base64
 
-from agora.client.agora import AGORA
+from agora.client.execution import AGORA
 
 from sdh.curator.actions.core.fragment import FragmentRequest, FragmentAction, FragmentResponse, FragmentSink
 from sdh.curator.actions.core import CURATOR, TYPES, RDF, XSD, FOAF

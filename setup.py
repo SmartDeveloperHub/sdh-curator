@@ -28,7 +28,7 @@ __author__ = 'Fernando Serena'
 
 setup(
         name="SDH-Curator",
-        version="0.1.13",
+        version="0.1.14a1",
         author="Fernando Serena",
         author_email="fernando.serena@centeropenmiddleware.com",
         description="The service responsible for supporting resource enrichment on a Linked Data platform",

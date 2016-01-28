@@ -27,7 +27,7 @@ import traceback
 from datetime import datetime as dt
 
 from abc import ABCMeta, abstractmethod
-from agora.client.agora import Agora
+from agora.client.wrapper import Agora
 from rdflib import Literal, XSD
 from redis.lock import Lock
 from sdh.curator.actions.core import CURATOR, RDF
