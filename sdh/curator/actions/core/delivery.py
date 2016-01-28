@@ -21,17 +21,18 @@
   limitations under the License.
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
+import base64
 import logging
+import uuid
+from datetime import datetime
+
 from abc import ABCMeta, abstractmethod, abstractproperty
-from sdh.curator.actions.core.base import Request, Action, Response, Sink
-from sdh.curator.actions.core.utils import CGraph
 from rdflib import BNode, Literal, RDFS
 from sdh.curator.actions.core import RDF, CURATOR, FOAF, TYPES, XSD
+from sdh.curator.actions.core.base import Request, Action, Response, Sink
+from sdh.curator.actions.core.utils import CGraph
 from sdh.curator.messaging.reply import reply
 from sdh.curator.store import r
-from datetime import datetime
-import base64
-import uuid
 
 __author__ = 'Fernando Serena'
 
@@ -50,7 +51,7 @@ def _build_reply_templates():
     accepted.add((response_node, CURATOR.submittedBy, curator_node))
     accepted.add((response_node, CURATOR.submittedBy, curator_node))
     accepted.add(
-        (curator_node, CURATOR.agentId, CURATOR_UUID))
+            (curator_node, CURATOR.agentId, CURATOR_UUID))
     accepted.bind('types', TYPES)
     accepted.bind('curator', CURATOR)
     accepted.bind('foaf', FOAF)
@@ -79,6 +80,7 @@ def build_reply(template, reply_to, comment=None):
     for (prefix, ns) in template.namespaces():
         reply_graph.bind(prefix, ns)
     return reply_graph
+
 
 accepted_template, failure_template = _build_reply_templates()
 
@@ -128,15 +130,16 @@ class DeliveryRequest(Request):
                       -host: {}
                       -port: {}
                       -virtual host: {}""".format(
-            delivery_data['exchange'],
-            delivery_data['routing_key'],
-            delivery_data['host'], delivery_data['port'], delivery_data['vhost']))
+                delivery_data['exchange'],
+                delivery_data['routing_key'],
+                delivery_data['host'], delivery_data['port'], delivery_data['vhost']))
 
         self._fields['delivery'] = delivery_data.copy()
 
     @property
     def broker(self):
-        broker_dict = {k: self._fields['delivery'][k].toPython() for k in ('host', 'port', 'vhost') if k in self._fields['delivery']}
+        broker_dict = {k: self._fields['delivery'][k].toPython() for k in ('host', 'port', 'vhost') if
+                       k in self._fields['delivery']}
         broker_dict['port'] = int(broker_dict['port'])
         return broker_dict
 
@@ -185,8 +188,8 @@ class DeliveryAction(Action):
         except Exception, e:
             log.warning(e.message)
             self.sink.remove()
-        # if self.sink.ready:
-        #     self.sink.delivery = 'ready'
+            # if self.sink.ready:
+            #     self.sink.delivery = 'ready'
 
 
 def used_channels():

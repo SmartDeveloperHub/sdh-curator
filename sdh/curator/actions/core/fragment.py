@@ -23,19 +23,20 @@
 """
 import calendar
 import logging
-from shortuuid import uuid
+import traceback
+from datetime import datetime as dt
 
 from abc import ABCMeta, abstractmethod
-from rdflib import Literal, XSD, URIRef
+from agora.client.wrapper import Agora
+from rdflib import Literal, XSD
+from redis.lock import Lock
+from sdh.curator.actions.core import CURATOR, RDF
 from sdh.curator.actions.core.delivery import DeliveryRequest, DeliveryAction, DeliveryResponse, DeliverySink
 from sdh.curator.actions.core.utils import CGraph, GraphPattern
-from sdh.curator.actions.core import CURATOR, RDF
-from agora.client.agora import Agora, AGORA
+from sdh.curator.server import app
 from sdh.curator.store import r
 from sdh.curator.store.triples import cache, load_stream_triples
-from sdh.curator.server import app
-from datetime import datetime as dt
-from redis.lock import Lock
+from shortuuid import uuid
 
 __author__ = 'Fernando Serena'
 
@@ -64,7 +65,7 @@ class FragmentRequest(DeliveryRequest):
         if not variables:
             raise SyntaxError('There are no variables specified for this request')
         log.debug(
-            'Found {} variables in the the fragment pattern'.format(len(variables)))
+                'Found {} variables in the the fragment pattern'.format(len(variables)))
 
         visited = set([])
         for v in variables:
@@ -176,6 +177,8 @@ class FragmentSink(DeliverySink):
             mapping = {str(k): str(k) for k in self._variables_dict.values()}
         else:
             self._fragment_id, mapping = fragment_mapping
+            if r.get('fragments:{}:on_demand'.format(self._fragment_id)) is not None:
+                self._pipe.delete('fragments:{}:sync'.format(self._fragment_id))
         self._pipe.hset(self._request_key, 'mapping', mapping)
         self._pipe.hset(self._request_key, 'preferred_labels', self._preferred_labels)
         self._pipe.sadd('fragments:{}:requests'.format(self._fragment_id), self._request_id)
@@ -213,7 +216,7 @@ class FragmentSink(DeliverySink):
 
     @property
     def backed(self):
-        return self.fragment_updated_on is not None
+        return self.fragment_updated_on is not None  # and self.fragment_on_demand is None
 
     @property
     def fragment_id(self):
@@ -227,6 +230,10 @@ class FragmentSink(DeliverySink):
     @property
     def fragment_updated_on(self):
         return r.get('fragments:{}:updated'.format(self._fragment_id))
+
+    @property
+    def fragment_on_demand(self):
+        return r.get('fragments:{}:on_demand'.format(self._fragment_id))
 
     @property
     def is_pulling(self):
@@ -257,19 +264,10 @@ class FragmentResponse(DeliveryResponse):
             for response in generator:
                 yield response
         except Exception, e:
+            traceback.print_exc()
             log.error(e.message)
         finally:
             c_lock.release()
-        # with r.pipeline() as p:
-        #     try:
-        #         p.incr('fragments:{}:consumers'.format(self.sink.fragment_id))
-        #         p.execute()
-        #         generator = self._build()
-        #         for response in generator:
-        #             yield response
-        #     finally:
-        #         p.decr('fragments:{}:consumers'.format(self.sink.fragment_id))
-        #         p.execute()
 
     @abstractmethod
     def _build(self):
@@ -323,5 +321,10 @@ class FragmentResponse(DeliveryResponse):
         else:
             where_gp = ' . '.join(gp)
             query = """CONSTRUCT WHERE { %s }""" % where_gp
-        result = self.graph(data=True).query(query)
+
+        result = []
+        try:
+            result = self.graph(data=True).query(query)
+        except Exception, e:  # ParseException from query
+            log.warning(e.message)
         return result, stream

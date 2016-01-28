@@ -21,35 +21,16 @@
   limitations under the License.
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
-import pkgutil
-import logging
-import os
-import imp
 import inspect
+import logging
+
 from sdh.curator.actions.core.base import Action
+from sdh.curator.actions.ext import query, stream, enrichment
 
 __author__ = 'Fernando Serena'
 
 log = logging.getLogger('sdh.curator.actions')
 action_modules = {}
-# def load_module(name):
-#     (importer, name, _) = action_modules[name]
-#     loader = importer.find_module(name)
-#     file_path = loader.get_filename()
-#     mod_name, file_ext = os.path.splitext(os.path.split(file_path)[-1])
-#     py_mod = None
-#     if file_ext.lower() == '.py':
-#         py_mod = imp.load_source(mod_name, file_path)
-#     elif file_ext.lower() == '.pyc':
-#         py_mod = imp.load_compiled(mod_name, file_path)
-#
-#     action_modules[name] = py_mod
-
-# action_modules = {x[1]: x for x in pkgutil.iter_modules(path=['sdh/curator/actions/ext'])}
-# for module_name in action_modules:
-#     load_module(module_name)
-
-from sdh.curator.actions.ext import query, stream, enrichment
 
 action_modules['query'] = query
 action_modules['stream'] = stream
@@ -85,7 +66,8 @@ def execute(*args, **kwargs):
                                lambda (_, cl): issubclass(cl, Action) and cl != Action).pop()
         data = kwargs.get('data', None)
         log.debug(
-            'Found! Requesting an instance of {} to perform a/n {} action described as:\n{}'.format(clz, name, data))
+                'Found! Requesting an instance of {} to perform a/n {} action described as:\n{}'.format(clz, name,
+                                                                                                        data))
         clz(data).submit()
     except IndexError:
         raise EnvironmentError('Action module found but class is missing: "{}"'.format(name))

@@ -22,16 +22,15 @@
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
 import calendar
-
 import logging
+from datetime import datetime as dt
 
+from redis.lock import Lock
 from sdh.curator.actions.core.fragment import FragmentRequest, FragmentAction, FragmentResponse, FragmentSink
 from sdh.curator.actions.core.utils import parse_bool, chunks
-from sdh.curator.messaging.reply import reply
 from sdh.curator.daemons.fragment import FragmentPlugin, map_variables
+from sdh.curator.messaging.reply import reply
 from sdh.curator.store import r
-from redis.lock import Lock
-from datetime import datetime as dt
 
 __author__ = 'Fernando Serena'
 

@@ -22,12 +22,12 @@
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
 
-import redis
-from redis.exceptions import BusyLoadingError, RedisError
-from sdh.curator.server import app
 import logging
 import sys
 
+import redis
+from redis.exceptions import BusyLoadingError, RedisError
+from sdh.curator.server import app
 
 __author__ = 'Fernando Serena'
 
@@ -35,7 +35,6 @@ log = logging.getLogger('sdh.curator.actions.store')
 REDIS_CONFIG = app.config['REDIS']
 pool = redis.ConnectionPool(host=REDIS_CONFIG.get('host'), port=REDIS_CONFIG.get('port'), db=REDIS_CONFIG.get('db'))
 r = redis.StrictRedis(connection_pool=pool)
-
 
 # Ping redis to check if it's ready
 requests = 0

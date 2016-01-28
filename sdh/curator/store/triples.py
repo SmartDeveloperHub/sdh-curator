@@ -22,16 +22,17 @@
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
 
-from rdflib import ConjunctiveGraph, URIRef, Literal, XSD
-from sdh.curator.server import app
-import logging
 import calendar
-from datetime import datetime as dt
-from sdh.curator.store import r
-import os
+import logging
 import shutil
+from datetime import datetime as dt
+
+import os
 import shortuuid
 from concurrent.futures import ThreadPoolExecutor
+from rdflib import ConjunctiveGraph, URIRef, Literal, XSD, BNode
+from sdh.curator.server import app
+from sdh.curator.store import r
 
 __author__ = 'Fernando Serena'
 
@@ -47,6 +48,8 @@ def load_stream_triples(fid, until):
             elif '^^' in elm:
                 (value, ty) = tuple(elm.split('^^'))
                 return Literal(value.replace('"', ''), datatype=URIRef(ty.lstrip('<').rstrip('>')))
+            elif elm.startswith('_:'):
+                return BNode(elm.replace('_:', ''))
             else:
                 return Literal(elm.replace('"', ''), datatype=XSD.string)
 
@@ -71,7 +74,6 @@ def add_stream_triple(fid, tp, (s, p, o), timestamp=None):
 
 
 class GraphProvider(object):
-
     def __init__(self):
         self.__graph_dict = {}
 

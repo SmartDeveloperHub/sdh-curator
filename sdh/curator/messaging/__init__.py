@@ -22,12 +22,14 @@
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
 
-import pika
-from threading import Thread
 import logging
+import traceback
+from threading import Thread
+
+import pika
+from pika.exceptions import ConnectionClosed
 from sdh.curator.actions import execute
 from sdh.curator.server import app
-import traceback
 
 __author__ = 'Fernando Serena'
 
@@ -49,24 +51,28 @@ def callback(ch, method, properties, body):
 
 
 def __setup_queues():
-    connection = pika.BlockingConnection(pika.ConnectionParameters(
-        host=RABBIT_CONFIG['host']))
-    channel = connection.channel()
-    log.debug('Connected to AMQP server')
+    try:
+        connection = pika.BlockingConnection(pika.ConnectionParameters(
+                host=RABBIT_CONFIG['host']))
+    except ConnectionClosed:
+        log.error('AMQP broker is not available')
+    else:
+        channel = connection.channel()
+        log.debug('Connected to AMQP server')
 
-    channel.exchange_declare(exchange='sdh',
-                             type='topic', durable=True)
+        channel.exchange_declare(exchange='sdh',
+                                 type='topic', durable=True)
 
-    # Create the requests queue and binding
-    queue_name = 'curator_requests'
-    channel.queue_declare(queue_name, durable=True)
-    channel.queue_bind(exchange='sdh', queue=queue_name, routing_key='curator.request.*.#')
+        # Create the requests queue and binding
+        queue_name = 'curator_requests'
+        channel.queue_declare(queue_name, durable=True)
+        channel.queue_bind(exchange='sdh', queue=queue_name, routing_key='curator.request.*.#')
 
-    channel.basic_qos(prefetch_count=1)
-    channel.basic_consume(callback, queue=queue_name)
+        channel.basic_qos(prefetch_count=1)
+        channel.basic_consume(callback, queue=queue_name)
 
-    log.info('Waiting for curation requests')
-    channel.start_consuming()
+        log.info('Waiting for curation requests')
+        channel.start_consuming()
 
 
 th = Thread(target=__setup_queues)

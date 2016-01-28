@@ -21,13 +21,11 @@
   limitations under the License.
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
 """
-import json
 
-from flask import make_response, request, jsonify, render_template, url_for
-from flask_negotiate import consumes
+from flask import make_response, jsonify
 from sdh.curator.server import app
-from sdh.curator.store.triples import cache, load_stream_triples
 from sdh.curator.store import r
+from sdh.curator.store.triples import cache, load_stream_triples
 
 __author__ = 'Fernando Serena'
 

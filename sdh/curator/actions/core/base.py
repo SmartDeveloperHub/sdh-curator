@@ -25,11 +25,11 @@
 import StringIO
 import calendar
 import logging
-from shortuuid import uuid
 
 from abc import abstractproperty, abstractmethod, ABCMeta
 from sdh.curator.actions.core.utils import CGraph
 from sdh.curator.store import r
+from shortuuid import uuid
 
 __author__ = 'Fernando Serena'
 
@@ -81,7 +81,7 @@ class Action(object):
     def submit(self):
         if not issubclass(self.response_class(), Response):
             raise SystemError(
-                'The response class for this action is invalid: {}'.format(self.response_class()))
+                    'The response class for this action is invalid: {}'.format(self.response_class()))
         self.request.parse(self.__message)
         self.__action_id = u'{}@{}'.format(self.request.message_id, self.request.submitted_by)
         self.__request_id = self.sink.save(self)
@@ -193,11 +193,11 @@ class Request(object):
          self._fields['submitted_on'],
          self._fields['submitted_by']) = request_fields
         log.debug(
-            """Parsed attributes of generic action request:
-                -message id: {}
-                -submitted on: {}
-                -submitted by: {}""".format(
-                self._fields['message_id'], self._fields['submitted_on'], self._fields['submitted_by']))
+                """Parsed attributes of generic action request:
+                    -message id: {}
+                    -submitted on: {}
+                    -submitted by: {}""".format(
+                        self._fields['message_id'], self._fields['submitted_on'], self._fields['submitted_by']))
 
     @property
     def message_id(self):
