@@ -31,7 +31,7 @@ from datetime import datetime as dt, datetime
 from threading import Thread
 
 from agora.client.wrapper import Agora
-from agora.client import AGORA
+from agora.client.namespaces import AGORA
 from concurrent.futures.thread import ThreadPoolExecutor
 from rdflib import RDF, RDFS
 from redis.lock import Lock
