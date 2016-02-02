@@ -57,6 +57,10 @@ def _params_conf(def_on_demand_th, def_sync_time, def_frag_collectors, def_max_c
             'max_concurrent_deliveries': int(os.environ.get('MAX_CONCURRENT_DELIVERIES', def_max_conc_deliveries))}
 
 
+def _logging_conf(def_level):
+    return int(os.environ.get('LOG_LEVEL', def_level))
+
+
 class Config(object):
     PORT = _api_port()
     PARAMS = _params_conf(2.0, 10, 8, 8, 4)
@@ -83,7 +87,7 @@ class TestingConfig(Config):
 
 class ProductionConfig(Config):
     DEBUG = False
-    LOG = logging.DEBUG
+    LOG = _logging_conf(logging.INFO)
     STORE = 'persist'
     REDIS = _redis_conf('redis', 4, 6379)
     AGORA = _agora_conf('localhost', 9009)
