@@ -25,7 +25,7 @@
 import logging
 import traceback
 import pika
-from pika.exceptions import ChannelClosed
+from pika.exceptions import ChannelClosed, ConnectionClosed
 from pika.spec import BasicProperties
 from sdh.curator.server import app
 
@@ -34,14 +34,15 @@ RABBIT = app.config['RABBIT']
 __author__ = 'Fernando Serena'
 
 log = logging.getLogger('sdh.curator.messaging.reply')
+log.info('Setting up messaging system with {}'.format(RABBIT))
 
 
 def reply(message, exchange=None, routing_key=None, headers=None, host=RABBIT['host'], port=RABBIT['port'], vhost=None):
     try:
         connection_params = pika.ConnectionParameters(host=host, port=port)
         connection = pika.BlockingConnection(connection_params)
-    except Exception, e:
-        log.warning(e.message)
+    except ConnectionClosed, e:
+        log.warning('Bad connection parameters: {}'.format(connection_params))
         traceback.print_exc()
         return
 
