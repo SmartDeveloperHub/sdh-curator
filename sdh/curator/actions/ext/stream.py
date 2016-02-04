@@ -58,6 +58,7 @@ class StreamPlugin(FragmentPlugin):
             log.debug('Sending end stream signal after {}'.format(sink.delivery))
             sink.delivery = 'sent'
             reply((), headers={'state': 'end'}, **sink.recipient)
+            log.info('Stream of fragment {} for request {} is done'.format(fid, sink.request_id))
 
 
 FragmentPlugin.register(StreamPlugin)
@@ -135,6 +136,7 @@ class StreamSink(FragmentSink):
             p.multi()
             p.hset('requests:{}'.format(self._request_id), '__stream', value)
             p.execute()
+        log.info('Request {} stream state is now "{}"'.format(self._request_id, value))
 
 
 class StreamResponse(FragmentResponse):
@@ -148,6 +150,11 @@ class StreamResponse(FragmentResponse):
         return self.__sink
 
     def _build(self):
+        """
+        This function does not yield anything only when the new state is 'streaming'
+        :return:
+        """
+
         timestamp = calendar.timegm(dt.now().timetuple())
         lock = r.lock('fragments:{}:lock'.format(self.sink.fragment_id), lock_class=Lock)
         lock.acquire()
@@ -177,7 +184,7 @@ class StreamResponse(FragmentResponse):
             lock.release()
 
         if fragment:
-            log.debug('Building a stream result for request number {}'.format(self._request_id))
+            log.info('Building a stream result from cache for request number {}...'.format(self._request_id))
             for ch in chunks(fragment, 1000):
                 if ch:
                     yield [(map_variables(c, self.sink.mapping), s.n3(), p.n3(), o.n3()) for
@@ -188,7 +195,8 @@ class StreamResponse(FragmentResponse):
             try:
                 if self.sink.delivery == 'pushing' or (self.sink.delivery == 'mixing' and not self.sink.stream):
                     self.sink.delivery = 'sent'
-                    log.debug('Sending end stream signal after {}'.format(self.sink.delivery))
+                    log.info(
+                        'The response stream of request {} is completed. Notifying...'.format(self.sink.request_id))
                     yield (), {'state': 'end'}
                 elif self.sink.delivery == 'mixing' and self.sink.stream:
                     self.sink.delivery = 'streaming'

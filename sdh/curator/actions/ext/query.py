@@ -150,3 +150,4 @@ class QueryResponse(FragmentResponse):
             raise
         finally:
             yield '', {'state': 'end'}
+        self.sink.delivery = 'sent'

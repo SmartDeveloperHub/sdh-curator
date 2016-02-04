@@ -29,6 +29,7 @@ import traceback
 from abc import abstractmethod, abstractproperty
 from datetime import datetime as dt, datetime
 from threading import Thread
+from time import sleep
 
 from agora.client.wrapper import Agora
 from agora.client.namespaces import AGORA
@@ -38,7 +39,7 @@ from redis.lock import Lock
 from sdh.curator.daemons.delivery import build_response
 from sdh.curator.server import app
 from sdh.curator.store import r
-from sdh.curator.store.triples import cache as cache, add_stream_triple, load_stream_triples, graph_provider
+from sdh.curator.store.triples import cache, add_stream_triple, load_stream_triples, graph_provider
 
 __author__ = 'Fernando Serena'
 
@@ -48,17 +49,28 @@ ON_DEMAND_TH = float(app.config.get('PARAMS', {}).get('on_demand_threshold', 2.0
 MIN_SYNC = int(app.config.get('PARAMS', {}).get('min_sync_time', 10))
 N_COLLECTORS = int(app.config.get('PARAMS', {}).get('fragment_collectors', 1))
 MAX_CONCURRENT_FRAGMENTS = int(app.config.get('PARAMS', {}).get('max_concurrent_fragments', 8))
+COLLECT_THROTTLING = max(1, int(app.config.get('PARAMS', {}).get('collect_throttling', 30)))
+
+log.info("""Fragment daemon setup:
+                    - On-demand threshold: {}
+                    - Minimum sync time: {}
+                    - Maximum concurrent collectors: {}
+                    - Maximum concurrent fragments: {}""".format(ON_DEMAND_TH, MIN_SYNC, N_COLLECTORS,
+                                                                 MAX_CONCURRENT_FRAGMENTS))
 
 thp = ThreadPoolExecutor(max_workers=min(8, MAX_CONCURRENT_FRAGMENTS))
 
+log.info('Cleaning fragment locks...')
 fragment_locks = r.keys('*lock*')
 for flk in fragment_locks:
     r.delete(flk)
 
+log.info('Cleaning fragment pulling flags...')
 fragment_pullings = r.keys('fragments:*:pulling')
 for fpk in fragment_pullings:
     r.delete(fpk)
 
+log.info('Releasing registered fragments...')
 fragment_consumers = r.keys('fragments:*:consumers')
 for fck in fragment_consumers:
     r.delete(fck)
@@ -92,10 +104,6 @@ class FragmentPlugin(object):
     @classmethod
     def plugins(cls):
         return cls.__plugins[:]
-
-
-def __on_load_seed(s, _):
-    log.debug('{} dereferenced'.format(s))
 
 
 def __bind_prefixes(source_graph):
@@ -168,7 +176,19 @@ def __triple_pattern(graph, c):
     return str(subject), predicate.n3(graph.namespace_manager), str(obj)
 
 
+# Cache is used as the triple store for fragments.
+# Each fragment is assigned three different main contexts:
+#   - fid: Where all its triple patterns are persisted
+#   - /fid: Fragment data
+#   - (fid, c): Triple pattern based fragment data (1 context per triple pattern, c)
+
+
 def __replace_fragment(fid):
+    """
+    Recreate fragment <fid> cached data and all its data-contexts from the corresponding stream (Redis)
+    :param fid:
+    :return:
+    """
     tps = cache.get_context(fid).subjects(RDF.type, AGORA.TriplePattern)
     cache.remove_context(cache.get_context('/' + fid))
     for tp in tps:
@@ -183,9 +203,16 @@ def __replace_fragment(fid):
 
 
 def __cache_plan_context(fid, graph):
+    """
+    Use <graph> to extract the triple patterns of the current fragment <fid> and replace them as the expected context
+    (triple patterns context) in the cache graph
+    :param fid:
+    :param graph:
+    :return:
+    """
     try:
-        cache.remove_context(cache.get_context(fid))
         fid_context = cache.get_context(fid)
+        cache.remove_context(fid_context)
         tps = graph.subjects(RDF.type, AGORA.TriplePattern)
         for tp in tps:
             for (s, p, o) in graph.triples((tp, None, None)):
@@ -232,18 +259,23 @@ def __load_fragment_requests(fid):
 def __pull_fragment(fid):
     tps = r.smembers('fragments:{}:gp'.format(fid))
     requests, r_sinks = __load_fragment_requests(fid)
-    log.info('Pulling fragment {}, described by {}...'.format(fid, tps))
+    log.info("""Starting collection of fragment {}:
+                    - GP: {}
+                    - Supporting: ({}) {}""".format(fid, list(tps), len(requests), list(requests)))
     start_time = datetime.now()
 
     try:
         fgm_gen, _, graph = agora_client.get_fragment_generator('{ %s }' % ' . '.join(tps), workers=N_COLLECTORS,
-                                                                provider=graph_provider)
+                                                                provider=graph_provider, queue_size=N_COLLECTORS)
     except Exception:
         log.error('Agora is not available')
         return
 
     # There is no search plan to execute
     if not list(graph.subjects(RDF.type, AGORA.SearchTree)):
+        log.info('There is no search plan for fragment {}. Removing...'.format(fid))
+        # TODO: Send additional headers notifying the reason to end
+        __notify_completion(fid, r_sinks)
         __remove_fragment(fid)
         return
 
@@ -260,6 +292,7 @@ def __pull_fragment(fid):
     c_lock = r.lock(lock_consume_key, lock_class=Lock)
     c_lock.acquire()
 
+    # Update fragment contexts
     with r.pipeline(transaction=True) as p:
         p.multi()
         p.set('fragments:{}:pulling'.format(fid), True)
@@ -272,38 +305,61 @@ def __pull_fragment(fid):
     c_lock.release()
 
     n_triples = 0
-    for (c, s, p, o) in fgm_gen:
-        lock.acquire()
-        if add_stream_triple(fid, triple_patterns[c], (s, p, o)):
-            __consume_quad(fid, (triple_patterns[c], s, p, o), graph, sinks=r_sinks)
-        # time.sleep(0.01)
-        lock.release()
+    fragment_weight = 0
+    fragment_delta = 0
 
-        if r.scard('fragments:{}:requests'.format(fid)) != len(requests):
-            requests, r_sinks = __load_fragment_requests(fid)
-        n_triples += 1
+    try:
+        for (c, s, p, o) in fgm_gen:
+            pre_ts = datetime.now()
+            triple_weight = len(u'{}{}{}'.format(s, p, o))
+            fragment_weight += triple_weight
+            fragment_delta += triple_weight
+            lock.acquire()
+            if add_stream_triple(fid, triple_patterns[c], (s, p, o)):
+                __consume_quad(fid, (triple_patterns[c], s, p, o), graph, sinks=r_sinks)
+            lock.release()
+            if fragment_delta > 1000:
+                fragment_delta = 0
+                log.info('Pulling fragment {} [{} kB]'.format(fid, fragment_weight / 1000.0))
+
+            if r.scard('fragments:{}:requests'.format(fid)) != len(requests):
+                requests, r_sinks = __load_fragment_requests(fid)
+            n_triples += 1
+            post_ts = datetime.now()
+            elapsed = (post_ts - pre_ts).total_seconds()
+            excess = (1.0 / COLLECT_THROTTLING) - elapsed
+            if excess > 0:
+                sleep(excess)
+    except Exception, e:
+        traceback.print_exc()
 
     elapsed = (datetime.now() - start_time).total_seconds()
-    log.debug('{} triples retrieved for fragment {} in {} s'.format(n_triples, fid, elapsed))
+    log.info(
+        '{} triples retrieved for fragment {} in {} s [{} kB]'.format(n_triples, fid, elapsed,
+                                                                      fragment_weight / 1000.0))
 
     lock.acquire()
     c_lock.acquire()
     __replace_fragment(fid)
+    log.info('Fragment {} data has been replaced with the recently collected'.format(fid))
     __cache_plan_context(fid, graph)
+    log.info('BGP context of fragment {} has been cached'.format(fid))
     with r.pipeline(transaction=True) as p:
         p.multi()
         sync_key = 'fragments:{}:sync'.format(fid)
         demand_key = 'fragments:{}:on_demand'.format(fid)
+        # Fragment is now synced
         p.set(sync_key, True)
+        # If the fragment collection time has not exceeded the threshold, switch to on-demand mode
         if elapsed < ON_DEMAND_TH and elapsed * random.random() < ON_DEMAND_TH / 4:
             p.set(demand_key, True)
-            log.debug('Setting fragment {} to on-demand mode'.format(fid))
+            log.info('Fragment {} has been switched to on-demand mode'.format(fid))
         else:
             p.delete(demand_key)
             min_durability = int(max(MIN_SYNC, elapsed))
             durability = random.randint(min_durability, min_durability * 2)
             p.expire(sync_key, durability)
-            log.debug('Setting fragment {} to sync mode for {} s'.format(fid, durability))
+            log.info('Fragment {} is considered synced for {} s'.format(fid, durability))
         p.set('fragments:{}:updated'.format(fid), dt.now())
         p.delete('fragments:{}:pulling'.format(fid))
         p.execute()
@@ -313,13 +369,17 @@ def __pull_fragment(fid):
 
 
 def __collect_fragments():
-    log.info('Collector thread started')
+    registered_fragments = r.scard('fragments')
+    synced_fragments = len(r.keys('fragments:*:sync'))
+    log.info("""Collector daemon started:
+                    - Fragments: {}
+                    - Synced: {}""".format(registered_fragments, synced_fragments))
 
     futures = {}
     while True:
         for fid in filter(
                 lambda x: r.get('fragments:{}:sync'.format(x)) is None and r.get(
-                        'fragments:{}:pulling'.format(x)) is None,
+                    'fragments:{}:pulling'.format(x)) is None,
                 r.smembers('fragments')):
             if fid in futures:
                 if futures[fid].done():

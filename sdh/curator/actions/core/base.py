@@ -81,7 +81,8 @@ class Action(object):
     def submit(self):
         if not issubclass(self.response_class(), Response):
             raise SystemError(
-                    'The response class for this action is invalid: {}'.format(self.response_class()))
+                'The response class for this action is invalid: {}'.format(self.response_class()))
+        log.info('Parsing request message...')
         self.request.parse(self.__message)
         self.__action_id = u'{}@{}'.format(self.request.message_id, self.request.submitted_by)
         self.__request_id = self.sink.save(self)
@@ -120,6 +121,11 @@ class Sink(object):
         self._pipe.multi()
         self._save(action)
         self._pipe.execute()
+        log.info("""Request {} was saved:
+                    -message id: {}
+                    -submitted on: {}
+                    -submitted by: {}""".format(self._request_id, action.request.message_id,
+                                                action.request.submitted_on, action.request.submitted_by))
         return self._request_id
 
     def remove(self):
@@ -132,6 +138,7 @@ class Sink(object):
                 p.delete(key)
             self._remove(p)
             p.execute()
+        log.info('Request {} was removed'.format(self._request_id))
 
     @abstractmethod
     def _remove(self, pipe):
@@ -168,7 +175,11 @@ class Request(object):
 
     def parse(self, message):
         log.debug('Parsing message...')
-        self._graph.parse(StringIO.StringIO(message), format='turtle')
+        try:
+            self._graph.parse(StringIO.StringIO(message), format='turtle')
+        except Exception, e:
+            raise SyntaxError(e.message)
+
         self._extract_content()
 
     @abstractmethod
@@ -193,11 +204,11 @@ class Request(object):
          self._fields['submitted_on'],
          self._fields['submitted_by']) = request_fields
         log.debug(
-                """Parsed attributes of generic action request:
-                    -message id: {}
-                    -submitted on: {}
-                    -submitted by: {}""".format(
-                        self._fields['message_id'], self._fields['submitted_on'], self._fields['submitted_by']))
+            """Parsed attributes of generic action request:
+                -message id: {}
+                -submitted on: {}
+                -submitted by: {}""".format(
+                self._fields['message_id'], self._fields['submitted_on'], self._fields['submitted_by']))
 
     @property
     def message_id(self):

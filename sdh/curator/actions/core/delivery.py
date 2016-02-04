@@ -51,7 +51,7 @@ def _build_reply_templates():
     accepted.add((response_node, CURATOR.submittedBy, curator_node))
     accepted.add((response_node, CURATOR.submittedBy, curator_node))
     accepted.add(
-            (curator_node, CURATOR.agentId, CURATOR_UUID))
+        (curator_node, CURATOR.agentId, CURATOR_UUID))
     accepted.bind('types', TYPES)
     accepted.bind('curator', CURATOR)
     accepted.bind('foaf', FOAF)
@@ -83,6 +83,7 @@ def build_reply(template, reply_to, comment=None):
 
 
 accepted_template, failure_template = _build_reply_templates()
+log.info('Basic delivery templates created')
 
 
 class DeliveryRequest(Request):
@@ -130,9 +131,9 @@ class DeliveryRequest(Request):
                       -host: {}
                       -port: {}
                       -virtual host: {}""".format(
-                delivery_data['exchange'],
-                delivery_data['routing_key'],
-                delivery_data['host'], delivery_data['port'], delivery_data['vhost']))
+            delivery_data['exchange'],
+            delivery_data['routing_key'],
+            delivery_data['host'], delivery_data['port'], delivery_data['vhost']))
 
         self._fields['delivery'] = delivery_data.copy()
 
@@ -163,20 +164,20 @@ class DeliveryAction(Action):
 
     def __reply_accepted(self):
         graph = build_reply(accepted_template, self.request.message_id)
-        log.debug('Notifying acceptance of request number {}'.format(self.request_id))
         reply(graph.serialize(format='turtle'), exchange='sdh',
               routing_key='curator.response.{}'.format(self.request.submitted_by),
               **self.request.broker)
         if self.sink.delivery is None:
             self.sink.delivery = 'accepted'
+        log.info('Request {} was accepted'.format(self.request_id))
 
     def _reply_failure(self, reason=None):
         try:
             graph = build_reply(failure_template, self.request.message_id, reason)
-            log.debug('Notifying failure of request number {}'.format(self.request_id))
             reply(graph.serialize(format='turtle'), exchange='sdh',
                   routing_key='curator.response.{}'.format(self.request.submitted_by),
                   **self.request.broker)
+            log.info('Notified failure of request {} due to: {}'.format(self.request_id, reason))
         except KeyError:
             # Delivery channel data may be invalid
             pass
@@ -188,8 +189,6 @@ class DeliveryAction(Action):
         except Exception, e:
             log.warning(e.message)
             self.sink.remove()
-            # if self.sink.ready:
-            #     self.sink.delivery = 'ready'
 
 
 def used_channels():
@@ -242,8 +241,11 @@ class DeliverySink(Sink):
         channel_b64 = r.hget(self._request_key, 'channel')
         sharing = channel_sharing(channel_b64)
         if not sharing:
-            log.debug('Removing channel {}'.format(channel_b64))
+            log.info('Removing delivery channel ({}) for request {}'.format(channel_b64, self._request_id))
             pipe.delete('channels:{}'.format(channel_b64))
+        else:
+            log.info('Cannot remove delivery channel of request {}. It is being shared with {} another requests'.format(
+                self.request_id, sharing))
 
     @property
     def delivery(self):
@@ -256,10 +258,12 @@ class DeliverySink(Sink):
             if value == 'ready':
                 p.sadd('deliveries:ready', self._request_id)
             elif value == 'sent':
-                p.srem('deliveries:ready', self._request_id)
                 p.sadd('deliveries:sent', self._request_id)
+            if value != 'ready':
+                p.srem('deliveries:ready', self._request_id)
             p.hset('requests:{}'.format(self._request_id), 'delivery', value)
             p.execute()
+        log.info('Request {} delivery state is now "{}"'.format(self._request_id, value))
 
     @abstractproperty
     def ready(self):

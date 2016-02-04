@@ -25,7 +25,7 @@ import inspect
 import logging
 
 from sdh.curator.actions.core.base import Action
-from sdh.curator.actions.ext import query, stream, enrichment
+from sdh.curator.actions.ext import stream, query, enrichment
 
 __author__ = 'Fernando Serena'
 
@@ -58,8 +58,8 @@ def get_instance(module, clz, *args):
 
 
 def execute(*args, **kwargs):
-    log.debug('Searching for a compliant "{}" action handler...'.format(args[0]))
     name = args[0]
+    log.debug('Searching for a compliant "{}" action handler...'.format(name))
 
     try:
         _, clz = search_module(name,
@@ -68,6 +68,9 @@ def execute(*args, **kwargs):
         log.debug(
                 'Found! Requesting an instance of {} to perform a/n {} action described as:\n{}'.format(clz, name,
                                                                                                         data))
-        clz(data).submit()
+
+        action = clz(data)
+        action.submit()
+        log.info('A {} request was successfully submitted with id {}'.format(name, action.request_id))
     except IndexError:
         raise EnvironmentError('Action module found but class is missing: "{}"'.format(name))

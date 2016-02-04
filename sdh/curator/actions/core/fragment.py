@@ -45,6 +45,14 @@ agora_conf = app.config['AGORA']
 agora_client = Agora(**agora_conf)
 fragment_locks = {}
 
+# Ping Agora
+try:
+    _ = agora_client.prefixes
+except Exception:
+    log.warning('Agora is not currently available at {}'.format(agora_conf))
+else:
+    log.info('Connected to Agora: {}'.format(agora_conf))
+
 
 class FragmentRequest(DeliveryRequest):
     def __init__(self):
@@ -185,6 +193,12 @@ class FragmentSink(DeliverySink):
         self._pipe.hset('{}'.format(self._request_key), 'fragment_id', self._fragment_id)
         self._pipe.hset('{}'.format(self._request_key), 'pattern', ' . '.join(self._graph_pattern))
         self._dict_fields['mapping'] = mapping
+        if not exists:
+            log.info('Request {} has started a new fragment collection: {}'.format(self._request_id, self._fragment_id))
+        else:
+            log.info('Request {} is going to re-use fragment {}'.format(self._request_id, self._fragment_id))
+            n_fragment_reqs = r.scard('fragments:{}:requests'.format(self._fragment_id))
+            log.info('Fragment {} is supporting {} more requests'.format(self._fragment_id, n_fragment_reqs))
 
     @property
     def ready(self):

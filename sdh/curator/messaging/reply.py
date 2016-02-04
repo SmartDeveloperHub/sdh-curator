@@ -34,7 +34,6 @@ RABBIT = app.config['RABBIT']
 __author__ = 'Fernando Serena'
 
 log = logging.getLogger('sdh.curator.messaging.reply')
-log.info('Setting up messaging system with {}'.format(RABBIT))
 
 
 def reply(message, exchange=None, routing_key=None, headers=None, host=RABBIT['host'], port=RABBIT['port'], vhost=None):

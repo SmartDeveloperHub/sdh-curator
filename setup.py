@@ -23,25 +23,29 @@
 """
 
 from setuptools import setup, find_packages
+import json
 
 __author__ = 'Fernando Serena'
 
+with open("sdh/curator/metadata.json", 'r') as stream:
+    metadata = json.load(stream)
+
 setup(
-        name="SDH-Curator",
-        version="0.1.21",
-        author="Fernando Serena",
-        author_email="fernando.serena@centeropenmiddleware.com",
-        description="The service responsible for supporting resource enrichment on a Linked Data platform",
-        license="Apache 2",
-        keywords=["linked-data", "ontology", "curation"],
-        url="https://github.com/smartdeveloperhub/sdh-curator",
-        download_url="https://github.com/smartdeveloperhub/sdh-curator/tarball/0.1.15",
-        packages=find_packages(exclude=['ez_setup', 'examples', 'tests']),
-        namespace_packages=['sdh', 'sdh.curator'],
-        install_requires=['shortuuid', 'pika', 'flask', 'Flask-Negotiate', 'redis', 'hiredis', 'APScheduler',
-                          'networkx', 'Agora-Client'],
-        classifiers=[],
-        scripts=['curator'],
-        package_dir={'sdh.curator': 'sdh/curator', 'sdh.curator.server': 'sdh/curator/server'},
-        package_data={'sdh.curator.server': ['templates/*.*', 'static/*.*']},
+    name="SDH-Curator",
+    version=metadata.get('version'),
+    author=metadata.get('author'),
+    author_email=metadata.get('email'),
+    description=metadata.get('description'),
+    license="Apache 2",
+    keywords=["linked-data", "ontology", "curation"],
+    url=metadata.get('github'),
+    download_url="https://github.com/smartdeveloperhub/sdh-curator/tarball/0.1.15",
+    packages=find_packages(exclude=['ez_setup', 'examples', 'tests']),
+    namespace_packages=['sdh', 'sdh.curator'],
+    install_requires=['shortuuid', 'pika', 'flask', 'Flask-Negotiate', 'redis', 'hiredis',
+                      'networkx', 'Agora-Client'],
+    classifiers=[],
+    scripts=['curator'],
+    package_dir={'sdh.curator': 'sdh/curator', 'sdh.curator.server': 'sdh/curator/server'},
+    package_data={'sdh.curator.server': ['templates/*.*', 'static/*.*'], 'sdh.curator': ['metadata.json']},
 )

@@ -39,15 +39,17 @@ RABBIT_CONFIG = app.config['RABBIT']
 
 def callback(ch, method, properties, body):
     action_args = method.routing_key.split('.')[2:]
-    log.debug('Incoming request for "{}"!'.format(action_args[0]))
+    log.info('--> Incoming {} request!'.format(action_args[0]))
     try:
         execute(*action_args, data=body)
     except (EnvironmentError, AttributeError, ValueError) as e:
-        traceback.print_exc()
+        # traceback.print_exc()
         log.error(e.message)
         ch.basic_reject(delivery_tag=method.delivery_tag, requeue=False)
+        log.debug('Sent REJECT')
     else:
         ch.basic_ack(delivery_tag=method.delivery_tag)
+        log.debug('Sent ACK')
 
 
 def __setup_queues():
@@ -58,7 +60,7 @@ def __setup_queues():
         log.error('AMQP broker is not available')
     else:
         channel = connection.channel()
-        log.debug('Connected to AMQP server')
+        log.info('Connected to the AMQP broker: {}'.format(RABBIT_CONFIG))
 
         channel.exchange_declare(exchange='sdh',
                                  type='topic', durable=True)
@@ -71,7 +73,7 @@ def __setup_queues():
         channel.basic_qos(prefetch_count=1)
         channel.basic_consume(callback, queue=queue_name)
 
-        log.info('Waiting for curation requests')
+        log.info('Ready to accept requests')
         channel.start_consuming()
 
 

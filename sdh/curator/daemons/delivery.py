@@ -10,7 +10,7 @@
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=#
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
-  You may obtain a copy of the License at 
+  You may obtain a copy of the License at
 
             http://www.apache.org/licenses/LICENSE-2.0
 
@@ -37,6 +37,9 @@ MAX_CONCURRENT_DELIVERIES = int(app.config.get('PARAMS', {}).get('max_concurrent
 log = logging.getLogger('sdh.curator.daemons.delivery')
 thp = ThreadPoolExecutor(max_workers=min(8, MAX_CONCURRENT_DELIVERIES))
 
+log.info("""Delivery daemon setup:
+                    - Maximum concurrent deliveries: {}""".format(MAX_CONCURRENT_DELIVERIES))
+
 
 def build_response(rid):
     from sdh.curator.actions import get_instance
@@ -51,25 +54,43 @@ def __deliver_response(rid):
     response = None
     try:
         response = build_response(rid)
-        if response.sink.delivery == 'ready':
-            log.debug('Delivery for request {} started'.format(rid))
+        delivery_state = response.sink.delivery
+        if delivery_state == 'ready':
             messages = response.build()
-            message, headers = messages.next()
+            # The creation of a response object may change the corresponding request delivery state
+            # (mixing, streaming, etc). The thing is that it was 'ready' before,
+            # so it should be something prepared to deliver.
+            message, headers = messages.next()  # Actually, this is the trigger
             reply(message, headers=headers, **response.sink.recipient)
+            n_messages = 1
+            deliver_weight = len(str(message))
+            deliver_delta = deliver_weight
             for (message, headers) in messages:
                 reply(message, headers=headers, **response.sink.recipient)
-            log.debug('Response sent for request number {}'.format(rid))
-            if response.sink.delivery == 'ready':
-                response.sink.delivery = 'sent'
-    except StopIteration:
+                n_messages += 1
+                deliver_weight += len(str(message))
+                deliver_delta += deliver_weight
+                if deliver_delta > 1000:
+                    deliver_delta = 0
+                    log.info('Delivering response of request {} [{} kB]'.format(rid, deliver_weight / 1000.0))
+
+            deliver_weight /= 1000.0
+            log.info('{} messages delivered for request {} [{} kB]'.format(n_messages, rid, deliver_weight))
+
+        elif delivery_state == 'accepted':
+            log.error('Request {} should not be marked as deliver-ready, its state is inconsistent'.format(rid))
+        else:
+            log.info('Response of request {} is being delivered by other means...'.format(rid))
+            r.srem('deliveries:ready', rid)
+    except StopIteration:   # There was nothing prepared to deliver (Its state may have changed to
+                            # 'streaming')
         r.srem('deliveries:ready', rid)
-        log.debug('There is nothing to deliver for request number {}. Skipping...'.format(rid))
     except (EnvironmentError, AttributeError, Exception), e:
         r.srem('deliveries:ready', rid)
         traceback.print_exc()
         log.warning(e.message)
         if response is not None:
-            log.debug('Force remove of request {} due to a delivery error'.format(rid))
+            log.error('Force remove of request {} due to a delivery error'.format(rid))
             response.sink.remove()
         else:
             log.error("Couldn't remove request {}".format(rid))
@@ -78,13 +99,19 @@ def __deliver_response(rid):
 def __deliver_responses():
     import time
 
-    log.info('Delivery thread started')
+    registered_deliveries = r.scard('deliveries')
+    deliveries_ready = r.scard('deliveries:ready')
+    log.info("""Delivery daemon started:
+                    - Deliveries: {}
+                    - Ready: {}""".format(registered_deliveries, deliveries_ready))
+
+    log.info('Delivery daemon started')
     futures = {}
     while True:
         ready = r.smembers('deliveries:ready')
         for rid in ready:
             if rid not in futures:
-                log.debug('Preparing delivery for request {}...'.format(rid))
+                log.info('Response delivery of request {} is ready. Preparing...'.format(rid))
                 futures[rid] = thp.submit(__deliver_response, rid)
 
         for obsolete_rid in set.difference(set(futures.keys()), ready):
@@ -94,10 +121,11 @@ def __deliver_responses():
         sent = r.smembers('deliveries:sent')
         for rid in sent:
             r.srem('deliveries:ready', rid)
+            r.srem('deliveries', rid)
             try:
                 response = build_response(rid)
                 response.sink.remove()
-                log.debug('Request {} sent and cleared'.format(rid))
+                log.info('Request {} was sent and cleared'.format(rid))
             except AttributeError:
                 log.warning('Request number {} was deleted by other means'.format(rid))
                 pass

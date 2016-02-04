@@ -131,4 +131,3 @@ else:
 
 cache.store.graph_aware = False
 query.store.graph_aware = False
-log.info('Ready')

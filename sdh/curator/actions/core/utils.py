@@ -117,6 +117,9 @@ class GraphPattern(set):
         mapping = self.mapping(other)
         return mapping is not None
 
+    def __repr__(self):
+        return str(list(self))
+
     def mapping(self, other):
         if not isinstance(other, GraphPattern):
             return None

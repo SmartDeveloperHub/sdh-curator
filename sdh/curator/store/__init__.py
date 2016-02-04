@@ -45,7 +45,7 @@ while True:
     except BusyLoadingError as re:
         log.warning(re.message)
     except RedisError:
-        print 'Redis is not available'
+        log.error('Redis is not available')
         sys.exit(-1)
 
 store_mode = app.config['STORE']

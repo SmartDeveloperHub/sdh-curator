@@ -4,7 +4,6 @@ hiredis
 Flask
 Flask-Negotiate
 rdflib
-APScheduler
 networkx
 futures
 rfc3987
